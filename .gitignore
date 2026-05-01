@@ -1,0 +1,47 @@
+# ===== Gradle =====
+.gradle/
+build/
+*/build/
+
+# ===== Local config (DON'T SHARE) =====
+local.properties
+
+# ===== IDE (Android Studio / IntelliJ) =====
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# ===== OS files =====
+.DS_Store
+Thumbs.db
+
+# ===== Kotlin =====
+.kotlin/
+
+# ===== Logs =====
+*.log
+
+# ===== Generated files =====
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ===== Keystore (IMPORTANT) =====
+*.jks
+*.keystore
+
+# ===== APK / Bundle =====
+*.apk
+*.aab
+
+# ===== Firebase / Secrets (if used later) =====
+google-services.json
+
+# ===== Room DB (optional - debug only) =====
+*.db
+*.db-shm
+*.db-wal
+
+# ===== Misc =====
+*.hprof
