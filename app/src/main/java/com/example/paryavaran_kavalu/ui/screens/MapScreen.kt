@@ -1,5 +1,6 @@
 package com.example.paryavaran_kavalu.ui.screens
 
+import android.annotation.SuppressLint
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -15,24 +16,35 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,7 +65,11 @@ import com.example.paryavaran_kavalu.util.launchWalkingNavigation
 import com.example.paryavaran_kavalu.R
 import com.example.paryavaran_kavalu.data.ReportEntity
 import com.example.paryavaran_kavalu.ui.WasteReportViewModel
+import com.example.paryavaran_kavalu.util.distanceMeters
+import com.google.android.gms.location.Priority
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.tasks.CancellationTokenSource
+import kotlinx.coroutines.tasks.await
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -62,18 +78,22 @@ import java.util.Date
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
+@SuppressLint("MissingPermission")
 @Composable
 fun MapScreen(
     viewModel: WasteReportViewModel,
     modifier: Modifier = Modifier,
     onReportIncident: () -> Unit = {},
     onOpenLeaderboard: () -> Unit = {},
+    onOpenProfile: () -> Unit = {},
     onRequestCleanPhoto: (Long) -> Unit = {},
     onBackToHome: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val activity = context as ComponentActivity
     val reports by viewModel.reports.collectAsStateWithLifecycle(lifecycleOwner = activity)
+    val mapRefreshGen by viewModel.reportWriteGeneration.collectAsStateWithLifecycle(lifecycleOwner = activity)
+    val userProfile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
 
     var selectedReport by remember { mutableStateOf<ReportEntity?>(null) }
 
@@ -84,6 +104,45 @@ fun MapScreen(
 
     var currentLocation by remember {
         mutableStateOf(GeoPoint(12.9716, 77.5946))
+    }
+
+    val radiusOptions = remember {
+        listOf(
+            "3 km" to 3f,
+            "5 km" to 5f,
+            "10 km" to 10f,
+            "All" to Float.MAX_VALUE,
+        )
+    }
+    val wasteFilterChoices = remember {
+        listOf("All", "Plastic", "Organic", "Glass", "Metal", "Electronic", "Other")
+    }
+    var radiusIndex by remember { mutableIntStateOf(radiusOptions.lastIndex) }
+    var wasteFilter by remember { mutableStateOf("All") }
+    val radiusChipScroll = rememberScrollState()
+    val wasteChipScroll = rememberScrollState()
+
+    val filteredReports = remember(reports, currentLocation, radiusIndex, wasteFilter, radiusOptions) {
+        val capKm = radiusOptions[radiusIndex].second
+        val distanceLimited = radiusIndex != radiusOptions.lastIndex
+        val lat = currentLocation.latitude
+        val lon = currentLocation.longitude
+        reports
+            .map { r -> r to distanceMeters(lat, lon, r.latitude, r.longitude) }
+            .filter { (r, dM) ->
+                if (distanceLimited && dM > capKm * 1000.0) return@filter false
+                if (wasteFilter != "All" && r.wasteType != wasteFilter) return@filter false
+                true
+            }
+            .sortedBy { it.second }
+            .map { it.first }
+    }
+
+    LaunchedEffect(filteredReports, selectedReport?.id) {
+        val id = selectedReport?.id ?: return@LaunchedEffect
+        if (filteredReports.none { it.id == id }) {
+            selectedReport = null
+        }
     }
 
     var locationPermissionGranted by remember {
@@ -117,18 +176,45 @@ fun MapScreen(
         }
     }
 
-    LaunchedEffect(locationPermissionGranted) {
+    var locationRefreshTick by remember { mutableIntStateOf(0) }
+
+    DisposableEffect(activity, locationPermissionGranted) {
+        if (!locationPermissionGranted) {
+            onDispose { }
+        } else {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) locationRefreshTick++
+            }
+            activity.lifecycle.addObserver(observer)
+            onDispose { activity.lifecycle.removeObserver(observer) }
+        }
+    }
+
+    LaunchedEffect(locationPermissionGranted, locationRefreshTick) {
         if (!locationPermissionGranted) return@LaunchedEffect
-        val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+        val fused = LocationServices.getFusedLocationProviderClient(context)
         try {
-            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                location?.let {
-                    currentLocation = GeoPoint(it.latitude, it.longitude)
-                }
+            var loc = fused.lastLocation.await()
+            if (loc == null) {
+                loc = fused.getCurrentLocation(
+                    Priority.PRIORITY_HIGH_ACCURACY,
+                    CancellationTokenSource().token,
+                ).await()
+            }
+            loc?.let {
+                currentLocation = GeoPoint(it.latitude, it.longitude)
+                viewModel.seedDemoReportsIfNeeded(it.latitude, it.longitude)
             }
         } catch (e: SecurityException) {
             e.printStackTrace()
         }
+    }
+
+    /** If fused location stays null (some emulators), still seed once around the map centre. */
+    LaunchedEffect(mapReady) {
+        if (!mapReady) return@LaunchedEffect
+        delay(4500)
+        viewModel.seedDemoReportsIfNeeded(currentLocation.latitude, currentLocation.longitude)
     }
 
     val dateFmt = remember {
@@ -137,26 +223,99 @@ fun MapScreen(
 
     Column(modifier = modifier.fillMaxSize()) {
         Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding(),
             color = MaterialTheme.colorScheme.primary,
             tonalElevation = 4.dp,
         ) {
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .heightIn(min = 52.dp)
+                    .padding(horizontal = 4.dp, vertical = 8.dp),
             ) {
-                TextButton(onClick = onBackToHome) {
+                TextButton(
+                    onClick = onBackToHome,
+                    modifier = Modifier.align(Alignment.CenterStart),
+                ) {
                     Text("About", color = MaterialTheme.colorScheme.onPrimary)
                 }
                 Text(
                     text = "Map",
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.align(Alignment.Center),
                 )
-                TextButton(onClick = onOpenLeaderboard) {
-                    Text("Eco‑karma", color = MaterialTheme.colorScheme.onPrimary)
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(0.dp),
+                ) {
+                    TextButton(
+                        onClick = onOpenLeaderboard,
+                        modifier = Modifier.padding(end = 2.dp),
+                    ) {
+                        Text(
+                            text = "Eco‑karma",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                    IconButton(
+                        onClick = onOpenProfile,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.AccountCircle,
+                            contentDescription = "Profile — ${userProfile?.nickname ?: "you"} (${userProfile?.userType ?: "Reporter"})",
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            tonalElevation = 1.dp,
+            shadowElevation = 0.dp,
+        ) {
+            Column(
+                Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "Nearby (${filteredReports.size} of ${reports.size}) · nearest first",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text("Distance", style = MaterialTheme.typography.labelLarge)
+                Row(
+                    modifier = Modifier.horizontalScroll(radiusChipScroll),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    radiusOptions.forEachIndexed { i, (label, _) ->
+                        FilterChip(
+                            selected = radiusIndex == i,
+                            onClick = { radiusIndex = i },
+                            label = { Text(label) },
+                        )
+                    }
+                }
+                Text("Waste type", style = MaterialTheme.typography.labelLarge)
+                Row(
+                    modifier = Modifier.horizontalScroll(wasteChipScroll),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    wasteFilterChoices.forEach { w ->
+                        FilterChip(
+                            selected = wasteFilter == w,
+                            onClick = { wasteFilter = w },
+                            label = { Text(w) },
+                        )
+                    }
                 }
             }
         }
@@ -180,44 +339,54 @@ fun MapScreen(
                 }
             }
         } else {
-            AndroidView(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                factory = { ctx ->
-                    MapView(ctx).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                        setMultiTouchControls(true)
-                        controller.setZoom(15.0)
-                        // AVD: reduces "Unable to match the desired swap behavior" / Gralloc glitches
-                        // with OSMDroid + OpenGL; real phones keep default (HW) layer.
-                        if (isProbablyEmulator()) {
-                            setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+            key(
+                mapRefreshGen,
+                reports.size,
+                reports.sumOf { it.id },
+                radiusIndex,
+                wasteFilter,
+                filteredReports.size,
+                filteredReports.sumOf { it.id },
+            ) {
+                AndroidView(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    factory = { ctx ->
+                        MapView(ctx).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                            )
+                            setMultiTouchControls(true)
+                            controller.setZoom(15.0)
+                            // AVD: reduces "Unable to match the desired swap behavior" / Gralloc glitches
+                            // with OSMDroid + OpenGL; real phones keep default (HW) layer.
+                            if (isProbablyEmulator()) {
+                                setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                            }
+                            bindOsmdroidToLifecycle(this, activity)
                         }
-                        bindOsmdroidToLifecycle(this, activity)
-                    }
-                },
-                update = { map ->
-                    map.controller.setCenter(currentLocation)
-                    map.overlays.clear()
-                    reports.forEach { report ->
-                        map.addReportMarker(context, report) { tapped ->
-                            selectedReport = tapped
+                    },
+                    update = { map ->
+                        map.controller.setCenter(currentLocation)
+                        map.overlays.clear()
+                        filteredReports.forEach { report ->
+                            map.addReportMarker(context, report) { tapped ->
+                                selectedReport = tapped
+                            }
                         }
-                    }
-                    val userMarker = Marker(map).apply {
-                        position = currentLocation
-                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                        title = "You"
-                        ContextCompat.getDrawable(context, R.drawable.blue_marker)?.let { icon = it }
-                    }
-                    map.overlays.add(userMarker)
-                    map.invalidate()
-                },
-            )
+                        val userMarker = Marker(map).apply {
+                            position = currentLocation
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                            title = "You"
+                            ContextCompat.getDrawable(context, R.drawable.blue_marker)?.let { icon = it }
+                        }
+                        map.overlays.add(userMarker)
+                        map.invalidate()
+                    },
+                )
+            }
         }
 
         Button(
@@ -252,6 +421,16 @@ fun MapScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("Report details", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    text = "Reported by: ${report.reporterNickname.ifBlank { "—" }}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = "Stored coordinates (Room): " +
+                        String.format(Locale.US, "%.5f, %.5f", report.latitude, report.longitude),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Text(
                     text = "Captured: ${dateFmt.format(Date(report.timestamp))}",
                     style = MaterialTheme.typography.bodyMedium,

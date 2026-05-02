@@ -19,4 +19,10 @@ interface ReportDao {
 
     @Update
     suspend fun update(report: ReportEntity)
+
+    @Query("SELECT COUNT(*) FROM reports WHERE reporterNickname = :nickname")
+    suspend fun countByReporterNickname(nickname: String): Int
+
+    @Query("DELETE FROM reports WHERE reporterNickname = :nickname")
+    suspend fun deleteByReporterNickname(nickname: String)
 }

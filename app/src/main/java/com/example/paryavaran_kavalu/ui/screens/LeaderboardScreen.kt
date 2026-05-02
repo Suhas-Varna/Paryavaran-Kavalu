@@ -56,7 +56,7 @@ fun LeaderboardScreen(
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = profile?.name ?: "Eco warrior",
+                    text = profile?.nickname ?: "Eco warrior",
                     style = MaterialTheme.typography.titleLarge,
                 )
                 Text(

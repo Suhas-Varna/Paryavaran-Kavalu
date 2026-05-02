@@ -15,4 +15,8 @@ data class ReportEntity(
     val timestamp: Long,
     val cleanedImageUri: String? = null,
     val cleanedAt: Long? = null,
+    /** Local profile id at submit time (single-user device; reserved for future sync). */
+    val reporterUserId: Int = 1,
+    /** Snapshot of [UserEntity.nickname] when the report was created. */
+    val reporterNickname: String = "",
 )

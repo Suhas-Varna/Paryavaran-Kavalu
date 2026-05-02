@@ -3,6 +3,7 @@ package com.example.paryavaran_kavalu
 import android.app.Application
 import com.example.paryavaran_kavalu.data.AppDatabase
 import com.example.paryavaran_kavalu.data.UserEntity
+import com.example.paryavaran_kavalu.data.UserTypes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,7 +25,15 @@ class ParyavaranApplication : Application() {
         applicationScope.launch {
             val userDao = database.userDao()
             if (userDao.getUser() == null) {
-                userDao.insert(UserEntity(userId = 1, name = "Eco Warrior", ecoPoints = 0))
+                userDao.insert(
+                    UserEntity(
+                        userId = 1,
+                        nickname = "Eco Warrior",
+                        userType = UserTypes.REPORTER,
+                        bio = "",
+                        ecoPoints = 0,
+                    ),
+                )
             }
         }
     }

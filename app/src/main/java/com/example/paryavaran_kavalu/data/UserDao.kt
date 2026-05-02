@@ -19,4 +19,13 @@ interface UserDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(user: UserEntity)
+
+    @Query(
+        """
+        UPDATE user_profile
+        SET nickname = :nickname, userType = :userType, bio = :bio
+        WHERE userId = 1
+        """,
+    )
+    suspend fun updateProfile(nickname: String, userType: String, bio: String)
 }

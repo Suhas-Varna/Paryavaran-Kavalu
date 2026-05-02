@@ -7,10 +7,18 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.paryavaran_kavalu.ParyavaranApplication
+import com.example.paryavaran_kavalu.data.MockReportsSeed
 import com.example.paryavaran_kavalu.data.ReportEntity
+import com.example.paryavaran_kavalu.data.UserTypes
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 class WasteReportViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -18,12 +26,23 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
     private val reportDao = db.reportDao()
     private val userDao = db.userDao()
 
+    /**
+     * Stays active while navigating Camera → Report so the map still receives new rows
+     * when you pop back to the map.
+     */
     val reports = reportDao.getAllReports()
         .stateIn(
             viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
+            SharingStarted.Eagerly,
             emptyList(),
         )
+
+    private val _reportWriteGeneration = MutableStateFlow(0L)
+    val reportWriteGeneration: StateFlow<Long> = _reportWriteGeneration.asStateFlow()
+
+    private fun bumpReportWrites() {
+        _reportWriteGeneration.update { it + 1L }
+    }
 
     val userProfile = userDao.observeUser()
         .stateIn(
@@ -39,6 +58,16 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
         capturedImageUri = uriString
     }
 
+    fun updateProfile(nickname: String, userType: String, bio: String, onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            val n = nickname.trim()
+            if (n.isEmpty()) return@launch
+            val t = userType.trim().takeIf { it in UserTypes.all } ?: UserTypes.REPORTER
+            userDao.updateProfile(nickname = n, userType = t, bio = bio.trim())
+            onDone()
+        }
+    }
+
     suspend fun submitReport(
         imageUri: String,
         latitude: Double,
@@ -47,6 +76,9 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
         description: String,
         status: String = "Pending",
     ) {
+        val user = userDao.getUser()
+        val nick = user?.nickname?.trim().orEmpty().ifEmpty { "Anonymous" }
+        val uid = user?.userId ?: 1
         reportDao.insert(
             ReportEntity(
                 imageUri = imageUri,
@@ -56,9 +88,35 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
                 description = description,
                 status = status,
                 timestamp = System.currentTimeMillis(),
+                reporterUserId = uid,
+                reporterNickname = nick,
             ),
         )
         userDao.addEcoPoints(EcoKarma.SUBMIT_REPORT)
+        bumpReportWrites()
+    }
+
+    private val demoSeedMutex = Mutex()
+
+    /**
+     * Inserts ~10 demo reports around [centerLat]/[centerLon] if demo rows are missing.
+     * Real reports do not block this (only [MockReportsSeed.DEMO_REPORTER_NICKNAME] rows count).
+     */
+    fun seedDemoReportsIfNeeded(centerLat: Double, centerLon: Double) {
+        viewModelScope.launch {
+            demoSeedMutex.withLock {
+                val nick = MockReportsSeed.DEMO_REPORTER_NICKNAME
+                if (reportDao.countByReporterNickname(nick) >= MockReportsSeed.DEMO_ROW_COUNT) {
+                    return@withLock
+                }
+                if (reportDao.countByReporterNickname(nick) > 0) {
+                    reportDao.deleteByReporterNickname(nick)
+                }
+                val pkg = getApplication<Application>().packageName
+                MockReportsSeed.buildEntities(centerLat, centerLon, pkg).forEach { reportDao.insert(it) }
+                bumpReportWrites()
+            }
+        }
     }
 
     fun markReportCleaned(reportId: Long, cleanedImageUri: String, onDone: () -> Unit = {}) {
@@ -72,6 +130,7 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
                 ),
             )
             userDao.addEcoPoints(EcoKarma.MARK_CLEANED)
+            bumpReportWrites()
             onDone()
         }
     }

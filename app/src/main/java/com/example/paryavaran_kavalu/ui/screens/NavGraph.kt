@@ -13,6 +13,7 @@ import com.example.paryavaran_kavalu.ui.screens.CameraScreen
 import com.example.paryavaran_kavalu.ui.screens.HomeScreen
 import com.example.paryavaran_kavalu.ui.screens.LeaderboardScreen
 import com.example.paryavaran_kavalu.ui.screens.MapScreen
+import com.example.paryavaran_kavalu.ui.screens.ProfileScreen
 import com.example.paryavaran_kavalu.ui.screens.ReportScreen
 import com.example.paryavaran_kavalu.ui.screens.SplashScreen
 
@@ -51,10 +52,18 @@ fun AppNavigation() {
                 viewModel = viewModel,
                 onReportIncident = { navController.navigate("camera") },
                 onOpenLeaderboard = { navController.navigate("leaderboard") },
+                onOpenProfile = { navController.navigate("profile") },
                 onRequestCleanPhoto = { reportId ->
                     navController.navigate("clean_camera/$reportId")
                 },
                 onBackToHome = { navController.popBackStack() },
+            )
+        }
+
+        composable("profile") {
+            ProfileScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
             )
         }
 

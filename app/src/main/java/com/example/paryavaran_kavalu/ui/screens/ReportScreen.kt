@@ -42,15 +42,64 @@ import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
 import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
 private val wasteTypes = listOf("Plastic", "Organic", "Glass", "Metal", "Electronic", "Other")
 
 @SuppressLint("MissingPermission")
-private suspend fun awaitLastLocation(context: android.content.Context): Location? {
-    val client = LocationServices.getFusedLocationProviderClient(context)
-    return client.lastLocation.await()
+private suspend fun awaitBestLocation(context: android.content.Context): Location? {
+    val fused = LocationServices.getFusedLocationProviderClient(context)
+    var loc = fused.lastLocation.await()
+    if (loc == null) {
+        loc = fused.getCurrentLocation(
+            Priority.PRIORITY_HIGH_ACCURACY,
+            CancellationTokenSource().token,
+        ).await()
+    }
+    return loc
+}
+
+@SuppressLint("MissingPermission")
+private suspend fun submitReportIfReady(
+    context: android.content.Context,
+    viewModel: WasteReportViewModel,
+    imageUri: String?,
+    wasteType: String,
+    description: String,
+    locationPermissionGranted: () -> Boolean,
+    onError: (String) -> Unit,
+    onSubmitted: () -> Unit,
+) {
+    val uri = imageUri
+    if (uri.isNullOrBlank()) {
+        onError("Please capture a photo first.")
+        return
+    }
+    if (!locationPermissionGranted()) {
+        onError("Location permission is required to submit.")
+        return
+    }
+    try {
+        val location: Location? = awaitBestLocation(context)
+        if (location == null) {
+            onError("Could not read location. Try again outdoors.")
+            return
+        }
+        viewModel.submitReport(
+            imageUri = uri,
+            latitude = location.latitude,
+            longitude = location.longitude,
+            wasteType = wasteType,
+            description = description,
+            status = "Pending",
+        )
+        onSubmitted()
+    } catch (e: SecurityException) {
+        onError("Location permission denied.")
+    }
 }
 
 @Composable
@@ -80,12 +129,36 @@ fun ReportScreen(
         )
     }
 
+    /** When true, run submit again after ACCESS_FINE_LOCATION is granted (same tap flow). */
+    var pendingSubmitAfterPermission by remember { mutableStateOf(false) }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
         locationPermissionGranted = granted
         if (granted) {
             errorMessage = null
+            if (pendingSubmitAfterPermission) {
+                pendingSubmitAfterPermission = false
+                scope.launch {
+                    submitReportIfReady(
+                        context = context,
+                        viewModel = viewModel,
+                        imageUri = viewModel.capturedImageUri,
+                        wasteType = wasteType,
+                        description = description,
+                        locationPermissionGranted = { locationPermissionGranted },
+                        onError = { errorMessage = it },
+                        onSubmitted = {
+                            viewModel.updateCapturedImageUri(null)
+                            onSubmitted()
+                        },
+                    )
+                }
+            }
+        } else {
+            pendingSubmitAfterPermission = false
+            errorMessage = "Location permission is required to submit."
         }
     }
 
@@ -116,6 +189,11 @@ fun ReportScreen(
         Text(
             text = "Report details",
             style = MaterialTheme.typography.headlineSmall,
+        )
+        Text(
+            text = "On submit we store GPS latitude & longitude with your photo in the local database (same coordinates shown on the map pin).",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         Text("Waste type", style = MaterialTheme.typography.labelLarge)
@@ -183,32 +261,27 @@ fun ReportScreen(
                     return@Button
                 }
                 if (!locationPermissionGranted) {
+                    pendingSubmitAfterPermission = true
                     permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                    errorMessage = "Location permission is required to submit."
+                    errorMessage = "Allow location to submit. We’ll continue after you grant permission."
                     return@Button
                 }
 
                 errorMessage = null
                 scope.launch {
-                    try {
-                        val location: Location? = awaitLastLocation(context)
-                        if (location == null) {
-                            errorMessage = "Could not read location. Try again outdoors."
-                            return@launch
-                        }
-                        viewModel.submitReport(
-                            imageUri = uri,
-                            latitude = location.latitude,
-                            longitude = location.longitude,
-                            wasteType = wasteType,
-                            description = description,
-                            status = "Pending",
-                        )
-                        viewModel.updateCapturedImageUri(null)
-                        onSubmitted()
-                    } catch (e: SecurityException) {
-                        errorMessage = "Location permission denied."
-                    }
+                    submitReportIfReady(
+                        context = context,
+                        viewModel = viewModel,
+                        imageUri = uri,
+                        wasteType = wasteType,
+                        description = description,
+                        locationPermissionGranted = { locationPermissionGranted },
+                        onError = { errorMessage = it },
+                        onSubmitted = {
+                            viewModel.updateCapturedImageUri(null)
+                            onSubmitted()
+                        },
+                    )
                 }
             },
             modifier = Modifier.fillMaxWidth(),
