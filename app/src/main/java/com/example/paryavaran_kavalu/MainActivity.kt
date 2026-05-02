@@ -14,7 +14,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             ParyavaranKavaluTheme {
-                AppNavigation()   // 🔥 THIS FIXES YOUR ISSUE
+                AppNavigation()   
             }
         }
     }
