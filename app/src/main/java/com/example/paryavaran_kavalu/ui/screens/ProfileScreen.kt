@@ -29,6 +29,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.paryavaran_kavalu.ui.components.AppBarNavigation
+import com.example.paryavaran_kavalu.ui.components.ParyavaranAppBarTitle
+import com.example.paryavaran_kavalu.ui.components.ParyavaranPrimaryAppBar
+import com.example.paryavaran_kavalu.ui.components.RoomDebugBottomSheet
 import com.example.paryavaran_kavalu.data.UserTypes
 import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 import com.example.paryavaran_kavalu.ui.userTypeIcon
@@ -38,9 +42,13 @@ import com.example.paryavaran_kavalu.ui.userTypeShortDescription
 fun ProfileScreen(
     viewModel: WasteReportViewModel,
     onBack: () -> Unit,
+    onOpenLeaderboard: () -> Unit,
+    onOpenProfile: () -> Unit,
 ) {
     val activity = LocalContext.current as ComponentActivity
     val profile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
+    val reports by viewModel.reports.collectAsStateWithLifecycle(lifecycleOwner = activity)
+    var showRoomDebug by remember { mutableStateOf(false) }
 
     var nickname by remember { mutableStateOf("") }
     var userType by remember { mutableStateOf(UserTypes.REPORTER) }
@@ -71,18 +79,24 @@ fun ProfileScreen(
 
     val canSave = hasUnsavedChanges && nickname.trim().isNotEmpty()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Button(onClick = onBack) {
-            Text("Back")
-        }
-
-        Text("Your profile", style = MaterialTheme.typography.headlineSmall)
+    Column(Modifier.fillMaxSize()) {
+        ParyavaranPrimaryAppBar(
+            navigation = AppBarNavigation.Back,
+            onNavigationClick = onBack,
+            navigationContentDescription = "Back",
+            onDebugClick = { showRoomDebug = true },
+            onEcoKarmaClick = onOpenLeaderboard,
+            onProfileClick = onOpenProfile,
+            profileContentDescription = "Profile — ${profile?.nickname ?: "you"} (${profile?.userType ?: "Reporter"})",
+            title = { ParyavaranAppBarTitle(text = "Your profile") },
+        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
         Text(
             text = "Stored on this device with Room. Nickname is saved on each waste report.",
             style = MaterialTheme.typography.bodyMedium,
@@ -176,5 +190,12 @@ fun ProfileScreen(
         ) {
             Text("Save changes")
         }
+        }
     }
+    RoomDebugBottomSheet(
+        visible = showRoomDebug,
+        onDismiss = { showRoomDebug = false },
+        user = profile,
+        reports = reports,
+    )
 }

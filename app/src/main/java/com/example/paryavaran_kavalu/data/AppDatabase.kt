@@ -67,6 +67,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Ensures [ReportEntity.description] exists on disk. Older upgrades stopped at v4 without
+         * this column; v5 was previously registered with no migration, which triggered destructive
+         * fallback for some installs.
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val columns = linkedSetOf<String>()
+                db.query("PRAGMA table_info(reports)").use { cursor ->
+                    val nameIdx = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) {
+                        if (nameIdx >= 0) columns.add(cursor.getString(nameIdx))
+                    }
+                }
+                if ("description" !in columns) {
+                    db.execSQL(
+                        "ALTER TABLE reports ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+                    )
+                }
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -77,7 +99,12 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "paryavaran.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                    )
                     /**
                      * If the on-disk schema does not match current entities (identity hash mismatch),
                      * Room recreates the DB on upgrade instead of crashing — e.g. after experimental

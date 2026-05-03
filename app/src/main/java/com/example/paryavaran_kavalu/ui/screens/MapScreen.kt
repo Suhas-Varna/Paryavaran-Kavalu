@@ -3,23 +3,24 @@ package com.example.paryavaran_kavalu.ui.screens
 import android.annotation.SuppressLint
 import android.Manifest
 import android.content.pm.PackageManager
-import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,21 +29,18 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,8 +48,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -60,10 +58,15 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
-import coil.compose.AsyncImage
-import com.example.paryavaran_kavalu.util.launchWalkingNavigation
+import com.example.paryavaran_kavalu.util.isProbablyEmulator
 import com.example.paryavaran_kavalu.R
 import com.example.paryavaran_kavalu.data.ReportEntity
+import com.example.paryavaran_kavalu.data.WasteMenu
+import com.example.paryavaran_kavalu.data.WasteTypeCsv
+import com.example.paryavaran_kavalu.ui.components.AppBarNavigation
+import com.example.paryavaran_kavalu.ui.components.ParyavaranAppBarTitle
+import com.example.paryavaran_kavalu.ui.components.ParyavaranPrimaryAppBar
+import com.example.paryavaran_kavalu.ui.components.RoomDebugBottomSheet
 import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 import com.example.paryavaran_kavalu.util.distanceMeters
 import com.google.android.gms.location.Priority
@@ -88,6 +91,7 @@ fun MapScreen(
     onOpenProfile: () -> Unit = {},
     onRequestCleanPhoto: (Long) -> Unit = {},
     onBackToHome: () -> Unit = {},
+    onOpenIncidentDetail: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
     val activity = context as ComponentActivity
@@ -95,12 +99,7 @@ fun MapScreen(
     val mapRefreshGen by viewModel.reportWriteGeneration.collectAsStateWithLifecycle(lifecycleOwner = activity)
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
 
-    var selectedReport by remember { mutableStateOf<ReportEntity?>(null) }
-
-    LaunchedEffect(reports, selectedReport?.id) {
-        val id = selectedReport?.id ?: return@LaunchedEffect
-        selectedReport = reports.find { it.id == id } ?: selectedReport
-    }
+    var showRoomDebug by remember { mutableStateOf(false) }
 
     var currentLocation by remember {
         mutableStateOf(GeoPoint(12.9716, 77.5946))
@@ -114,15 +113,13 @@ fun MapScreen(
             "All" to Float.MAX_VALUE,
         )
     }
-    val wasteFilterChoices = remember {
-        listOf("All", "Plastic", "Organic", "Glass", "Metal", "Electronic", "Other")
-    }
     var radiusIndex by remember { mutableIntStateOf(radiusOptions.lastIndex) }
-    var wasteFilter by remember { mutableStateOf("All") }
+    /** Empty = show every waste type. Otherwise pins match only if the report lists **all** selected types. */
+    var selectedWasteFilters by remember { mutableStateOf(emptySet<String>()) }
     val radiusChipScroll = rememberScrollState()
     val wasteChipScroll = rememberScrollState()
 
-    val filteredReports = remember(reports, currentLocation, radiusIndex, wasteFilter, radiusOptions) {
+    val filteredReports = remember(reports, currentLocation, radiusIndex, selectedWasteFilters, radiusOptions) {
         val capKm = radiusOptions[radiusIndex].second
         val distanceLimited = radiusIndex != radiusOptions.lastIndex
         val lat = currentLocation.latitude
@@ -131,18 +128,52 @@ fun MapScreen(
             .map { r -> r to distanceMeters(lat, lon, r.latitude, r.longitude) }
             .filter { (r, dM) ->
                 if (distanceLimited && dM > capKm * 1000.0) return@filter false
-                if (wasteFilter != "All" && r.wasteType != wasteFilter) return@filter false
+                if (selectedWasteFilters.isNotEmpty()) {
+                    if (!WasteTypeCsv.containsAllCategories(r.wasteType, selectedWasteFilters)) {
+                        return@filter false
+                    }
+                }
                 true
             }
             .sortedBy { it.second }
             .map { it.first }
     }
 
-    LaunchedEffect(filteredReports, selectedReport?.id) {
-        val id = selectedReport?.id ?: return@LaunchedEffect
-        if (filteredReports.none { it.id == id }) {
-            selectedReport = null
+    /** Any Room change to reports (or explicit refresh gen) — drives OSMDroid overlay updates. */
+    val mapSyncToken = remember(reports, mapRefreshGen) {
+        buildString {
+            append(mapRefreshGen)
+            append('|')
+            reports.forEach { r ->
+                append(r.id)
+                append(':')
+                append(r.status)
+                append(':')
+                append(r.latitude)
+                append(':')
+                append(r.longitude)
+                append(':')
+                append(r.wasteType)
+                append(':')
+                append(r.description)
+                append(':')
+                append(r.timestamp)
+                append(':')
+                append(r.cleanedAt ?: 0L)
+                append(';')
+            }
         }
+    }
+
+    var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+
+    LaunchedEffect(mapViewRef, filteredReports, currentLocation, mapSyncToken) {
+        val map = mapViewRef ?: return@LaunchedEffect
+        map.applyReportOverlays(
+            context = context,
+            filteredReports = filteredReports,
+            userLocation = currentLocation,
+        ) { tapped -> onOpenIncidentDetail(tapped.id) }
     }
 
     var locationPermissionGranted by remember {
@@ -217,65 +248,19 @@ fun MapScreen(
         viewModel.seedDemoReportsIfNeeded(currentLocation.latitude, currentLocation.longitude)
     }
 
-    val dateFmt = remember {
-        SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
-    }
-
     Column(modifier = modifier.fillMaxSize()) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding(),
-            color = MaterialTheme.colorScheme.primary,
-            tonalElevation = 4.dp,
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 52.dp)
-                    .padding(horizontal = 4.dp, vertical = 8.dp),
-            ) {
-                TextButton(
-                    onClick = onBackToHome,
-                    modifier = Modifier.align(Alignment.CenterStart),
-                ) {
-                    Text("About", color = MaterialTheme.colorScheme.onPrimary)
-                }
-                Text(
-                    text = "Map",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.align(Alignment.Center),
-                )
-                Row(
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(0.dp),
-                ) {
-                    TextButton(
-                        onClick = onOpenLeaderboard,
-                        modifier = Modifier.padding(end = 2.dp),
-                    ) {
-                        Text(
-                            text = "Eco‑karma",
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            style = MaterialTheme.typography.labelLarge,
-                        )
-                    }
-                    IconButton(
-                        onClick = onOpenProfile,
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.AccountCircle,
-                            contentDescription = "Profile — ${userProfile?.nickname ?: "you"} (${userProfile?.userType ?: "Reporter"})",
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(28.dp),
-                        )
-                    }
-                }
-            }
-        }
+        ParyavaranPrimaryAppBar(
+            navigation = AppBarNavigation.Back,
+            onNavigationClick = onBackToHome,
+            navigationContentDescription = "Back to guide",
+            onDebugClick = { showRoomDebug = true },
+            onEcoKarmaClick = onOpenLeaderboard,
+            onProfileClick = onOpenProfile,
+            profileContentDescription = "Profile — ${userProfile?.nickname ?: "you"} (${userProfile?.userType ?: "Reporter"})",
+            title = {
+                ParyavaranAppBarTitle(text = "Map")
+            },
+        )
 
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -305,14 +290,31 @@ fun MapScreen(
                     }
                 }
                 Text("Waste type", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    text = "Tap All to clear. Pick one or more types — a pin shows only if that report includes every selected category (stricter match).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Row(
                     modifier = Modifier.horizontalScroll(wasteChipScroll),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    wasteFilterChoices.forEach { w ->
+                    FilterChip(
+                        selected = selectedWasteFilters.isEmpty(),
+                        onClick = { selectedWasteFilters = emptySet() },
+                        label = { Text("All") },
+                    )
+                    WasteMenu.types.forEach { w ->
                         FilterChip(
-                            selected = wasteFilter == w,
-                            onClick = { wasteFilter = w },
+                            selected = w in selectedWasteFilters,
+                            onClick = {
+                                selectedWasteFilters =
+                                    if (w in selectedWasteFilters) {
+                                        selectedWasteFilters - w
+                                    } else {
+                                        selectedWasteFilters + w
+                                    }
+                            },
                             label = { Text(w) },
                         )
                     }
@@ -339,54 +341,28 @@ fun MapScreen(
                 }
             }
         } else {
-            key(
-                mapRefreshGen,
-                reports.size,
-                reports.sumOf { it.id },
-                radiusIndex,
-                wasteFilter,
-                filteredReports.size,
-                filteredReports.sumOf { it.id },
-            ) {
-                AndroidView(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    factory = { ctx ->
-                        MapView(ctx).apply {
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                            )
-                            setMultiTouchControls(true)
-                            controller.setZoom(15.0)
-                            // AVD: reduces "Unable to match the desired swap behavior" / Gralloc glitches
-                            // with OSMDroid + OpenGL; real phones keep default (HW) layer.
-                            if (isProbablyEmulator()) {
-                                setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-                            }
-                            bindOsmdroidToLifecycle(this, activity)
+            AndroidView(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                factory = { ctx ->
+                    MapView(ctx).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
+                        setMultiTouchControls(true)
+                        controller.setZoom(15.0)
+                        // AVD: reduces "Unable to match the desired swap behavior" / Gralloc glitches
+                        // with OSMDroid + OpenGL; real phones keep default (HW) layer.
+                        if (isProbablyEmulator()) {
+                            setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                         }
-                    },
-                    update = { map ->
-                        map.controller.setCenter(currentLocation)
-                        map.overlays.clear()
-                        filteredReports.forEach { report ->
-                            map.addReportMarker(context, report) { tapped ->
-                                selectedReport = tapped
-                            }
-                        }
-                        val userMarker = Marker(map).apply {
-                            position = currentLocation
-                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                            title = "You"
-                            ContextCompat.getDrawable(context, R.drawable.blue_marker)?.let { icon = it }
-                        }
-                        map.overlays.add(userMarker)
-                        map.invalidate()
-                    },
-                )
-            }
+                        bindOsmdroidToLifecycle(this, activity)
+                    }
+                },
+                update = { map -> mapViewRef = map },
+            )
         }
 
         Button(
@@ -408,120 +384,12 @@ fun MapScreen(
         }
     }
 
-    selectedReport?.let { report ->
-        ModalBottomSheet(
-            onDismissRequest = { selectedReport = null },
-        ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .padding(bottom = 32.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("Report details", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    text = "Reported by: ${report.reporterNickname.ifBlank { "—" }}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = "Stored coordinates (Room): " +
-                        String.format(Locale.US, "%.5f, %.5f", report.latitude, report.longitude),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = "Captured: ${dateFmt.format(Date(report.timestamp))}",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = "Type: ${report.wasteType}",
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(
-                    text = report.description.ifBlank { "No description" },
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = "Status: ${report.status}",
-                    style = MaterialTheme.typography.labelLarge,
-                )
-
-                AsyncImage(
-                    model = report.imageUri,
-                    contentDescription = "Report photo",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp),
-                    contentScale = ContentScale.Crop,
-                )
-
-                OutlinedButton(
-                    onClick = {
-                        context.launchWalkingNavigation(report.latitude, report.longitude)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Walking directions (Maps / OSM)")
-                }
-
-                if (report.status.equals("Cleaned", ignoreCase = true)) {
-                    report.cleanedAt?.let {
-                        Text(
-                            "Marked clean: ${dateFmt.format(Date(it))}",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    report.cleanedImageUri?.let { cleanUri ->
-                        Text("Cleaning photo", style = MaterialTheme.typography.labelMedium)
-                        AsyncImage(
-                            model = cleanUri,
-                            contentDescription = "Cleaning proof",
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(180.dp),
-                            contentScale = ContentScale.Crop,
-                        )
-                    }
-                }
-
-                if (report.status.equals("Pending", ignoreCase = true)) {
-                    Button(
-                        onClick = {
-                            val id = report.id
-                            selectedReport = null
-                            onRequestCleanPhoto(id)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Mark as cleaned (take photo)")
-                    }
-                }
-
-                Button(
-                    onClick = { selectedReport = null },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Close")
-                }
-            }
-        }
-    }
-}
-
-private fun isProbablyEmulator(): Boolean {
-    if (Build.FINGERPRINT?.startsWith("generic") == true) return true
-    if (Build.FINGERPRINT?.startsWith("unknown") == true) return true
-    if (Build.MODEL.contains("Emulator", ignoreCase = true)) return true
-    if (Build.MODEL.contains("google_sdk", ignoreCase = true)) return true
-    if (Build.MANUFACTURER.contains("Genymotion", ignoreCase = true)) return true
-    if (Build.HARDWARE.contains("goldfish", ignoreCase = true)) return true
-    if (Build.HARDWARE.contains("ranchu", ignoreCase = true)) return true
-    if (Build.PRODUCT.contains("sdk_gphone", ignoreCase = true)) return true
-    if (Build.PRODUCT.contains("emulator", ignoreCase = true)) return true
-    if (Build.PRODUCT.contains("simulator", ignoreCase = true)) return true
-    return false
+    RoomDebugBottomSheet(
+        visible = showRoomDebug,
+        onDismiss = { showRoomDebug = false },
+        user = userProfile,
+        reports = reports,
+    )
 }
 
 /**
@@ -530,6 +398,28 @@ private fun isProbablyEmulator(): Boolean {
  * MapViews or calling [MapView.onDetach] from [DisposableEffect] can crash when the view
  * is still hosted by Compose.
  */
+private fun MapView.applyReportOverlays(
+    context: android.content.Context,
+    filteredReports: List<ReportEntity>,
+    userLocation: GeoPoint,
+    onReportTap: (ReportEntity) -> Unit,
+) {
+    controller.setCenter(userLocation)
+    overlays.clear()
+    filteredReports.forEach { report ->
+        addReportMarker(context, report, onReportTap)
+    }
+    val userMarker = Marker(this).apply {
+        position = userLocation
+        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+        title = "You"
+        ContextCompat.getDrawable(context, R.drawable.blue_marker)?.let { icon = it }
+    }
+    overlays.add(userMarker)
+    invalidate()
+    postInvalidate()
+}
+
 private fun bindOsmdroidToLifecycle(map: MapView, lifecycleOwner: LifecycleOwner) {
     map.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
         private var observer: LifecycleEventObserver? = null
@@ -561,6 +451,17 @@ private fun bindOsmdroidToLifecycle(map: MapView, lifecycleOwner: LifecycleOwner
     })
 }
 
+private fun markerSnippet(report: ReportEntity): String {
+    val d = report.description.trim()
+    return buildString {
+        append(report.status.trim().ifEmpty { "—" })
+        if (d.isNotEmpty()) {
+            append(" · ")
+            append(if (d.length > 64) d.take(64) + "…" else d)
+        }
+    }
+}
+
 private fun MapView.addReportMarker(
     context: android.content.Context,
     report: ReportEntity,
@@ -569,8 +470,8 @@ private fun MapView.addReportMarker(
     val marker = Marker(this).apply {
         position = GeoPoint(report.latitude, report.longitude)
         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-        title = report.wasteType
-        snippet = report.status
+        title = WasteTypeCsv.formatShort(report.wasteType)
+        snippet = markerSnippet(report)
         val iconRes = when (report.status.trim()) {
             "Cleaned" -> R.drawable.green_marker
             else -> R.drawable.red_marker

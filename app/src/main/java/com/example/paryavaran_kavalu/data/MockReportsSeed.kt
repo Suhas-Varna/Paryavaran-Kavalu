@@ -9,28 +9,37 @@ object MockReportsSeed {
 
     const val DEMO_ROW_COUNT = 10
 
+    /**
+     * Nearby cluster (~180–950 m) so pins stay visible around the current map centre (e.g. 12.9716, 77.5946).
+     * Triple: distanceM, bearingDeg, description (waste type is chosen by index into [WasteMenu.types]).
+     */
     private val demoRows =
         listOf(
-            Triple(420.0, 12.0, "Plastic" to "Demo: roadside bags near junction."),
-            Triple(890.0, 58.0, "Organic" to "Demo: vegetable waste pile."),
-            Triple(1350.0, 105.0, "Glass" to "Demo: broken bottles."),
-            Triple(1780.0, 155.0, "Metal" to "Demo: scrap metal dumped."),
-            Triple(2100.0, 205.0, "Electronic" to "Demo: old cables and devices."),
-            Triple(2650.0, 258.0, "Other" to "Demo: mixed construction debris."),
-            Triple(3100.0, 305.0, "Plastic" to "Demo: bottles near drain."),
-            Triple(3550.0, 352.0, "Organic" to "Demo: food waste."),
-            Triple(4100.0, 22.0, "Plastic" to "Demo: cleaned earlier (mock)."),
-            Triple(4750.0, 88.0, "Glass" to "Demo: far edge of neighbourhood."),
+            Triple(180.0, 5.0, "Demo: bags near footpath."),
+            Triple(240.0, 42.0, "Demo: vegetable market scraps."),
+            Triple(310.0, 88.0, "Demo: broken glass heap."),
+            Triple(410.0, 125.0, "Demo: scrap drums."),
+            Triple(480.0, 162.0, "Demo: e‑waste pile."),
+            Triple(560.0, 205.0, "Demo: mixed debris."),
+            Triple(640.0, 242.0, "Demo: bottles by drain."),
+            Triple(720.0, 285.0, "Demo: food waste bin overflow."),
+            Triple(820.0, 322.0, "Demo: cleared earlier (mock)."),
+            Triple(920.0, 358.0, "Demo: glass bits by crossing."),
         )
+
+    /** Rows shown as Cleaned (green pin) on the map — rest are Pending. */
+    private val cleanedRowIndices = setOf(3, 8)
 
     fun buildEntities(centerLat: Double, centerLon: Double, packageName: String): List<ReportEntity> {
         val imageUri = "android.resource://$packageName/drawable/ic_launcher_foreground"
         val now = System.currentTimeMillis()
         return demoRows.mapIndexed { index, triple ->
-            val (distM, bearing, pair) = triple
-            val (wasteType, desc) = pair
+            val (distM, bearing, desc) = triple
+            val wasteType = WasteTypeCsv.normalize(
+                listOf(WasteMenu.types[index % WasteMenu.types.size]),
+            )
             val (lat, lon) = offsetLatLon(centerLat, centerLon, distM, bearing)
-            val cleaned = index == 8
+            val cleaned = index in cleanedRowIndices
             ReportEntity(
                 imageUri = imageUri,
                 latitude = lat,

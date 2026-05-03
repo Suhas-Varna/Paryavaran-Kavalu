@@ -9,11 +9,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.paryavaran_kavalu.ui.EcoKarma
+import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 import com.example.paryavaran_kavalu.ui.screens.CameraScreen
+import com.example.paryavaran_kavalu.ui.screens.CleanupSuccessScreen
 import com.example.paryavaran_kavalu.ui.screens.HomeScreen
 import com.example.paryavaran_kavalu.ui.screens.LeaderboardScreen
 import com.example.paryavaran_kavalu.ui.screens.MapScreen
 import com.example.paryavaran_kavalu.ui.screens.ProfileScreen
+import com.example.paryavaran_kavalu.ui.screens.ReportDetailScreen
 import com.example.paryavaran_kavalu.ui.screens.ReportScreen
 import com.example.paryavaran_kavalu.ui.screens.SplashScreen
 
@@ -39,8 +43,19 @@ fun AppNavigation() {
 
         composable("home") {
             HomeScreen(
+                viewModel = viewModel,
                 onGetStarted = {
                     navController.navigate("map") {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenLeaderboard = {
+                    navController.navigate("leaderboard") {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenProfile = {
+                    navController.navigate("profile") {
                         launchSingleTop = true
                     }
                 },
@@ -57,6 +72,34 @@ fun AppNavigation() {
                     navController.navigate("clean_camera/$reportId")
                 },
                 onBackToHome = { navController.popBackStack() },
+                onOpenIncidentDetail = { reportId ->
+                    navController.navigate("incident/$reportId")
+                },
+            )
+        }
+
+        composable(
+            route = "incident/{reportId}",
+            arguments = listOf(navArgument("reportId") { type = NavType.LongType }),
+        ) { entry ->
+            val reportId = entry.arguments?.getLong("reportId") ?: return@composable
+            ReportDetailScreen(
+                reportId = reportId,
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onRequestCleanPhoto = { id ->
+                    navController.navigate("clean_camera/$id")
+                },
+                onOpenLeaderboard = {
+                    navController.navigate("leaderboard") {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenProfile = {
+                    navController.navigate("profile") {
+                        launchSingleTop = true
+                    }
+                },
             )
         }
 
@@ -64,6 +107,16 @@ fun AppNavigation() {
             ProfileScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
+                onOpenLeaderboard = {
+                    navController.navigate("leaderboard") {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenProfile = {
+                    navController.navigate("profile") {
+                        launchSingleTop = true
+                    }
+                },
             )
         }
 
@@ -71,6 +124,31 @@ fun AppNavigation() {
             LeaderboardScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
+                onOpenProfile = {
+                    navController.navigate("profile") {
+                        launchSingleTop = true
+                    }
+                },
+            )
+        }
+
+        composable("cleanup_success") {
+            CleanupSuccessScreen(
+                pointsEarned = EcoKarma.MARK_CLEANED,
+                onDone = {
+                    navController.popBackStack("map", inclusive = false)
+                },
+                onViewLeaderboard = {
+                    navController.navigate("leaderboard") {
+                        popUpTo("cleanup_success") { inclusive = true }
+                    }
+                },
+                viewModel = viewModel,
+                onOpenProfile = {
+                    navController.navigate("profile") {
+                        launchSingleTop = true
+                    }
+                },
             )
         }
 
@@ -82,17 +160,38 @@ fun AppNavigation() {
                 onSubmitted = {
                     navController.popBackStack("map", inclusive = false)
                 },
+                onOpenLeaderboard = {
+                    navController.navigate("leaderboard") {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenProfile = {
+                    navController.navigate("profile") {
+                        launchSingleTop = true
+                    }
+                },
             )
         }
 
         composable("camera") {
             CameraScreen(
+                viewModel = viewModel,
                 autoOpenCamera = true,
                 onBack = { navController.popBackStack() },
                 onImageCaptured = { uri ->
                     viewModel.updateCapturedImageUri(uri.toString())
                     navController.navigate("report") {
                         popUpTo("camera") { inclusive = true }
+                    }
+                },
+                onOpenLeaderboard = {
+                    navController.navigate("leaderboard") {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenProfile = {
+                    navController.navigate("profile") {
+                        launchSingleTop = true
                     }
                 },
             )
@@ -106,12 +205,30 @@ fun AppNavigation() {
         ) { entry ->
             val reportId = entry.arguments?.getLong("reportId") ?: return@composable
             CameraScreen(
+                viewModel = viewModel,
                 title = "Capture cleaning proof",
                 sessionKey = "clean_$reportId",
+                autoOpenCamera = true,
                 onBack = { navController.popBackStack() },
                 onImageCaptured = { uri ->
-                    viewModel.markReportCleaned(reportId, uri.toString()) {
-                        navController.popBackStack("map", inclusive = false)
+                    viewModel.markReportCleaned(reportId, uri.toString()) { pointsEarned ->
+                        if (pointsEarned != null) {
+                            navController.navigate("cleanup_success") {
+                                popUpTo("clean_camera/$reportId") { inclusive = true }
+                            }
+                        } else {
+                            navController.popBackStack()
+                        }
+                    }
+                },
+                onOpenLeaderboard = {
+                    navController.navigate("leaderboard") {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenProfile = {
+                    navController.navigate("profile") {
+                        launchSingleTop = true
                     }
                 },
             )

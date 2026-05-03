@@ -9,7 +9,12 @@ data class ReportEntity(
     val imageUri: String,
     val latitude: Double,
     val longitude: Double,
+    /** Comma-separated categories (see [WasteTypeCsv]). */
     val wasteType: String,
+    /**
+     * Reporter notes for this incident — required when “Other” is among waste types; optional
+     * otherwise but always stored (plastic + notes, mixed types, etc.).
+     */
     val description: String,
     val status: String,
     val timestamp: Long,

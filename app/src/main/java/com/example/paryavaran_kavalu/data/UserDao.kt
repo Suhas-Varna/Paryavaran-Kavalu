@@ -17,6 +17,14 @@ interface UserDao {
     @Query("UPDATE user_profile SET ecoPoints = ecoPoints + :delta WHERE userId = 1")
     suspend fun addEcoPoints(delta: Int)
 
+    /**
+     * Deducts [cost] only if the current balance is enough. Returns the number of rows updated (0 or 1).
+     */
+    @Query(
+        "UPDATE user_profile SET ecoPoints = ecoPoints - :cost WHERE userId = 1 AND ecoPoints >= :cost",
+    )
+    suspend fun tryDeductEcoPoints(cost: Int): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(user: UserEntity)
 

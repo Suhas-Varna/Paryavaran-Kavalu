@@ -3,6 +3,7 @@ package com.example.paryavaran_kavalu.ui.screens
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -26,18 +27,31 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.example.paryavaran_kavalu.ui.components.AppBarNavigation
+import com.example.paryavaran_kavalu.ui.components.ParyavaranAppBarTitle
+import com.example.paryavaran_kavalu.ui.components.ParyavaranPrimaryAppBar
+import com.example.paryavaran_kavalu.ui.components.RoomDebugBottomSheet
+import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 import java.io.File
 
 @Composable
 fun CameraScreen(
+    viewModel: WasteReportViewModel,
     onBack: () -> Unit,
     onImageCaptured: (Uri) -> Unit,
-    title: String = "Capture waste photo",
+    onOpenLeaderboard: () -> Unit,
+    onOpenProfile: () -> Unit,
+    title: String = "Camera",
     sessionKey: Any? = null,
     autoOpenCamera: Boolean = false,
 ) {
     val context = LocalContext.current
+    val activity = context as ComponentActivity
+    val profile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
+    val reports by viewModel.reports.collectAsStateWithLifecycle(lifecycleOwner = activity)
+    var showRoomDebug by remember { mutableStateOf(false) }
 
     var imageUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -90,20 +104,24 @@ fun CameraScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Button(onClick = onBack) {
-            Text("Back")
-        }
-
-        Text(
-            text = title,
-            style = MaterialTheme.typography.headlineSmall,
+    Column(Modifier.fillMaxSize()) {
+        ParyavaranPrimaryAppBar(
+            navigation = AppBarNavigation.Back,
+            onNavigationClick = onBack,
+            navigationContentDescription = "Back",
+            onDebugClick = { showRoomDebug = true },
+            onEcoKarmaClick = onOpenLeaderboard,
+            onProfileClick = onOpenProfile,
+            profileContentDescription = "Profile — ${profile?.nickname ?: "you"} (${profile?.userType ?: "Reporter"})",
+            title = { ParyavaranAppBarTitle(text = title) },
         )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
 
         imageUri?.let { captured ->
             AsyncImage(
@@ -151,5 +169,12 @@ fun CameraScreen(
                 Text("Use this photo")
             }
         }
+        }
     }
+    RoomDebugBottomSheet(
+        visible = showRoomDebug,
+        onDismiss = { showRoomDebug = false },
+        user = profile,
+        reports = reports,
+    )
 }

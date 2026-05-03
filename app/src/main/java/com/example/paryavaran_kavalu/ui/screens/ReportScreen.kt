@@ -9,19 +9,19 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -30,24 +30,28 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
+import com.example.paryavaran_kavalu.data.WasteMenu
+import com.example.paryavaran_kavalu.data.WasteTypeCsv
+import com.example.paryavaran_kavalu.util.isProbablyEmulator
+import com.example.paryavaran_kavalu.ui.components.AppBarNavigation
+import com.example.paryavaran_kavalu.ui.components.ParyavaranAppBarTitle
+import com.example.paryavaran_kavalu.ui.components.ParyavaranPrimaryAppBar
+import com.example.paryavaran_kavalu.ui.components.RoomDebugBottomSheet
 import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-
-private val wasteTypes = listOf("Plastic", "Organic", "Glass", "Metal", "Electronic", "Other")
 
 @SuppressLint("MissingPermission")
 private suspend fun awaitBestLocation(context: android.content.Context): Location? {
@@ -78,8 +82,16 @@ private suspend fun submitReportIfReady(
         onError("Please capture a photo first.")
         return
     }
+    if (wasteType.isBlank() || WasteTypeCsv.parseStored(wasteType).isEmpty()) {
+        onError("Select at least one waste type.")
+        return
+    }
     if (!locationPermissionGranted()) {
         onError("Location permission is required to submit.")
+        return
+    }
+    if (WasteTypeCsv.containsCategory(wasteType, "Other") && description.trim().isEmpty()) {
+        onError("Please describe the waste when “Other” is included.")
         return
     }
     try {
@@ -102,19 +114,25 @@ private suspend fun submitReportIfReady(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ReportScreen(
     viewModel: WasteReportViewModel,
     onBack: () -> Unit,
     onOpenCamera: () -> Unit,
     onSubmitted: () -> Unit,
+    onOpenLeaderboard: () -> Unit,
+    onOpenProfile: () -> Unit,
 ) {
     val context = LocalContext.current
     val activity = context as ComponentActivity
     val scope = rememberCoroutineScope()
+    val profile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
+    val reports by viewModel.reports.collectAsStateWithLifecycle(lifecycleOwner = activity)
+    var showRoomDebug by remember { mutableStateOf(false) }
 
     var description by remember { mutableStateOf("") }
-    var wasteType by remember { mutableStateOf(wasteTypes.first()) }
+    var selectedWasteTypes by remember { mutableStateOf(setOf<String>()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val imageUri = viewModel.capturedImageUri
@@ -141,11 +159,12 @@ fun ReportScreen(
             if (pendingSubmitAfterPermission) {
                 pendingSubmitAfterPermission = false
                 scope.launch {
+                    val wasteCsv = WasteTypeCsv.normalize(selectedWasteTypes.toList())
                     submitReportIfReady(
                         context = context,
                         viewModel = viewModel,
                         imageUri = viewModel.capturedImageUri,
-                        wasteType = wasteType,
+                        wasteType = wasteCsv,
                         description = description,
                         locationPermissionGranted = { locationPermissionGranted },
                         onError = { errorMessage = it },
@@ -175,54 +194,98 @@ fun ReportScreen(
         onDispose { activity.lifecycle.removeObserver(observer) }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Button(onClick = onBack) {
-            Text("Back")
-        }
-
-        Text(
-            text = "Report details",
-            style = MaterialTheme.typography.headlineSmall,
+    Column(Modifier.fillMaxSize()) {
+        ParyavaranPrimaryAppBar(
+            navigation = AppBarNavigation.Back,
+            onNavigationClick = onBack,
+            navigationContentDescription = "Back",
+            onDebugClick = { showRoomDebug = true },
+            onEcoKarmaClick = onOpenLeaderboard,
+            onProfileClick = onOpenProfile,
+            profileContentDescription = "Profile — ${profile?.nickname ?: "you"} (${profile?.userType ?: "Reporter"})",
+            title = { ParyavaranAppBarTitle(text = "Report") },
         )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
         Text(
             text = "On submit we store GPS latitude & longitude with your photo in the local database (same coordinates shown on the map pin).",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-
-        Text("Waste type", style = MaterialTheme.typography.labelLarge)
-        Column(Modifier.selectableGroup()) {
-            wasteTypes.forEach { type ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .selectable(
-                            selected = (type == wasteType),
-                            onClick = { wasteType = type },
-                            role = Role.RadioButton,
-                        )
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(
-                        selected = (type == wasteType),
-                        onClick = null,
-                    )
-                    Text(type, modifier = Modifier.padding(start = 8.dp))
-                }
-            }
+        if (isProbablyEmulator()) {
+            Text(
+                text = "Emulator: stored location is offset by a random 1–25 km from the fix so pins spread near you for easier debugging.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
         }
 
+        Text("Waste types", style = MaterialTheme.typography.labelLarge)
+        Text(
+            text = "Select one or more. Reports are saved with all selected categories so map filters (Plastic, Glass, …) can match any of them.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            WasteMenu.types.forEach { type ->
+                val selected = type in selectedWasteTypes
+                FilterChip(
+                    selected = selected,
+                    onClick = {
+                        selectedWasteTypes =
+                            if (selected) selectedWasteTypes - type else selectedWasteTypes + type
+                    },
+                    label = { Text(type) },
+                )
+            }
+        }
+        if ("Other" in selectedWasteTypes) {
+            Text(
+                text = "Include “Other” when not everything fits the chips. Describe what you see below — required if Other is selected.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        val isOther = "Other" in selectedWasteTypes
+        val descError = isOther && description.isBlank()
         OutlinedTextField(
             value = description,
             onValueChange = { description = it },
-            label = { Text("Description") },
+            label = {
+                Text(
+                    if (isOther) "Description (required for Other)" else "Description",
+                )
+            },
+            supportingText = if (isOther) {
+                {
+                    Text(
+                        text = if (descError) {
+                            "Required — say what kind of waste this is."
+                        } else {
+                            "Examples: medical wrappers, mixed tyres, construction foam…"
+                        },
+                        color = if (descError) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            } else {
+                null
+            },
+            isError = descError,
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,
         )
@@ -260,6 +323,14 @@ fun ReportScreen(
                     errorMessage = "Please capture a photo first."
                     return@Button
                 }
+                if (selectedWasteTypes.isEmpty()) {
+                    errorMessage = "Select at least one waste type."
+                    return@Button
+                }
+                if ("Other" in selectedWasteTypes && description.trim().isEmpty()) {
+                    errorMessage = "Please describe the waste when “Other” is selected."
+                    return@Button
+                }
                 if (!locationPermissionGranted) {
                     pendingSubmitAfterPermission = true
                     permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -267,13 +338,15 @@ fun ReportScreen(
                     return@Button
                 }
 
+                val wasteCsv = WasteTypeCsv.normalize(selectedWasteTypes.toList())
+
                 errorMessage = null
                 scope.launch {
                     submitReportIfReady(
                         context = context,
                         viewModel = viewModel,
                         imageUri = uri,
-                        wasteType = wasteType,
+                        wasteType = wasteCsv,
                         description = description,
                         locationPermissionGranted = { locationPermissionGranted },
                         onError = { errorMessage = it },
@@ -288,5 +361,12 @@ fun ReportScreen(
         ) {
             Text("Submit report")
         }
+        }
     }
+    RoomDebugBottomSheet(
+        visible = showRoomDebug,
+        onDismiss = { showRoomDebug = false },
+        user = profile,
+        reports = reports,
+    )
 }

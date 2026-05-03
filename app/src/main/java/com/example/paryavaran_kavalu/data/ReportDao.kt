@@ -25,4 +25,7 @@ interface ReportDao {
 
     @Query("DELETE FROM reports WHERE reporterNickname = :nickname")
     suspend fun deleteByReporterNickname(nickname: String)
+
+    @Query("DELETE FROM reports")
+    suspend fun deleteAllReports()
 }

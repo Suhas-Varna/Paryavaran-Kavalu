@@ -1,6 +1,7 @@
 package com.example.paryavaran_kavalu.ui
 
 import android.app.Application
+import android.content.Context
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -10,6 +11,10 @@ import com.example.paryavaran_kavalu.ParyavaranApplication
 import com.example.paryavaran_kavalu.data.MockReportsSeed
 import com.example.paryavaran_kavalu.data.ReportEntity
 import com.example.paryavaran_kavalu.data.UserTypes
+import com.example.paryavaran_kavalu.data.WasteTypeCsv
+import com.example.paryavaran_kavalu.util.isProbablyEmulator
+import com.example.paryavaran_kavalu.util.offsetLatLon
+import kotlin.random.Random
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -58,6 +63,18 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
         capturedImageUri = uriString
     }
 
+    /** Attempts to spend Eco‑karma for a reward; [onComplete] is true if the DB deduction succeeded. */
+    fun redeemEcoPoints(cost: Int, onComplete: (success: Boolean) -> Unit) {
+        viewModelScope.launch {
+            if (cost <= 0) {
+                onComplete(false)
+                return@launch
+            }
+            val updated = userDao.tryDeductEcoPoints(cost)
+            onComplete(updated > 0)
+        }
+    }
+
     fun updateProfile(nickname: String, userType: String, bio: String, onDone: () -> Unit = {}) {
         viewModelScope.launch {
             val n = nickname.trim()
@@ -79,12 +96,14 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
         val user = userDao.getUser()
         val nick = user?.nickname?.trim().orEmpty().ifEmpty { "Anonymous" }
         val uid = user?.userId ?: 1
+        val (lat, lon) = applyEmulatorDebugLocationOffset(latitude, longitude)
+        val wasteStored = WasteTypeCsv.normalize(WasteTypeCsv.parseStored(wasteType))
         reportDao.insert(
             ReportEntity(
                 imageUri = imageUri,
-                latitude = latitude,
-                longitude = longitude,
-                wasteType = wasteType,
+                latitude = lat,
+                longitude = lon,
+                wasteType = wasteStored,
                 description = description,
                 status = status,
                 timestamp = System.currentTimeMillis(),
@@ -98,13 +117,27 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
 
     private val demoSeedMutex = Mutex()
 
+    private val seedPrefs =
+        application.getSharedPreferences("paryavaran_map_seed", Context.MODE_PRIVATE)
+
     /**
-     * Inserts ~10 demo reports around [centerLat]/[centerLon] if demo rows are missing.
-     * Real reports do not block this (only [MockReportsSeed.DEMO_REPORTER_NICKNAME] rows count).
+     * First launch after install (or cleared app data): clears [reports] and inserts a nearby demo
+     * cluster around [centerLat]/[centerLon] (same categories as the report form / map chips).
+     * Later launches only top up demo rows if needed, without wiping user-submitted reports.
      */
     fun seedDemoReportsIfNeeded(centerLat: Double, centerLon: Double) {
         viewModelScope.launch {
             demoSeedMutex.withLock {
+                val pkg = getApplication<Application>().packageName
+                val demoClusterDone = seedPrefs.getBoolean(PREF_DEMO_CLUSTER_APPLIED, false)
+                if (!demoClusterDone) {
+                    seedPrefs.edit().putBoolean(PREF_DEMO_CLUSTER_APPLIED, true).apply()
+                    reportDao.deleteAllReports()
+                    MockReportsSeed.buildEntities(centerLat, centerLon, pkg)
+                        .forEach { reportDao.insert(it) }
+                    bumpReportWrites()
+                    return@withLock
+                }
                 val nick = MockReportsSeed.DEMO_REPORTER_NICKNAME
                 if (reportDao.countByReporterNickname(nick) >= MockReportsSeed.DEMO_ROW_COUNT) {
                     return@withLock
@@ -112,26 +145,59 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
                 if (reportDao.countByReporterNickname(nick) > 0) {
                     reportDao.deleteByReporterNickname(nick)
                 }
-                val pkg = getApplication<Application>().packageName
                 MockReportsSeed.buildEntities(centerLat, centerLon, pkg).forEach { reportDao.insert(it) }
                 bumpReportWrites()
             }
         }
     }
 
-    fun markReportCleaned(reportId: Long, cleanedImageUri: String, onDone: () -> Unit = {}) {
+    /**
+     * On emulators, GPS is often a fixed point; nudge stored coordinates by a random 1–25 km so
+     * pins stay in a debuggable band near the “current” fix without stacking on one spot.
+     */
+    private fun applyEmulatorDebugLocationOffset(latitude: Double, longitude: Double): Pair<Double, Double> {
+        if (!isProbablyEmulator()) return latitude to longitude
+        val km = Random.nextInt(1, 26)
+        val distanceM = km * 1000.0
+        val bearingDeg = Random.nextDouble(360.0)
+        return offsetLatLon(latitude, longitude, distanceM, bearingDeg)
+    }
+
+    private companion object {
+        const val PREF_DEMO_CLUSTER_APPLIED = "demo_cluster_near_center_applied_v1"
+    }
+
+    /**
+     * @param onComplete Invoked on the main thread after DB work. Passes [EcoKarma.MARK_CLEANED]
+     * when the row was updated and points were awarded; `null` if the report was missing or
+     * already cleaned (no duplicate reward).
+     */
+    fun markReportCleaned(
+        reportId: Long,
+        cleanedImageUri: String,
+        onComplete: (pointsEarned: Int?) -> Unit = {},
+    ) {
         viewModelScope.launch {
-            val existing = reportDao.getById(reportId) ?: return@launch
+            val existing = reportDao.getById(reportId)
+            if (existing == null) {
+                onComplete(null)
+                return@launch
+            }
+            if (existing.status.trim().equals("Cleaned", ignoreCase = true)) {
+                onComplete(null)
+                return@launch
+            }
+            val now = System.currentTimeMillis()
             reportDao.update(
                 existing.copy(
                     status = "Cleaned",
-                    cleanedImageUri = cleanedImageUri,
-                    cleanedAt = System.currentTimeMillis(),
+                    cleanedImageUri = cleanedImageUri.trim(),
+                    cleanedAt = now,
                 ),
             )
             userDao.addEcoPoints(EcoKarma.MARK_CLEANED)
             bumpReportWrites()
-            onDone()
+            onComplete(EcoKarma.MARK_CLEANED)
         }
     }
 }
