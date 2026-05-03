@@ -20,6 +20,9 @@ data class ReportEntity(
     val timestamp: Long,
     val cleanedImageUri: String? = null,
     val cleanedAt: Long? = null,
+    /** Who verified cleanup (after photo) — set when status becomes Cleaned. */
+    val cleanerUserId: Int? = null,
+    val cleanerNickname: String = "",
     /** Local profile id at submit time (single-user device; reserved for future sync). */
     val reporterUserId: Int = 1,
     /** Snapshot of [UserEntity.nickname] when the report was created. */

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
@@ -41,6 +42,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -87,6 +91,60 @@ private val guideSlides = listOf(
     ),
 )
 
+/** One gradient per slide — clearer color so it reads as a single panel (no “double frame”). */
+@Composable
+private fun guideSlideGradientBrush(page: Int): Brush {
+    val scheme = MaterialTheme.colorScheme
+    val i = page % guideSlides.size
+    return when (i) {
+        0 -> Brush.linearGradient(
+            colors = listOf(
+                scheme.surfaceContainerLow,
+                scheme.primary.copy(alpha = 0.16f),
+                scheme.primaryContainer.copy(alpha = 0.58f),
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(480f, 680f),
+        )
+        1 -> Brush.linearGradient(
+            colors = listOf(
+                scheme.surfaceContainerLow,
+                scheme.secondary.copy(alpha = 0.14f),
+                scheme.secondaryContainer.copy(alpha = 0.52f),
+            ),
+            start = Offset(400f, 0f),
+            end = Offset(0f, 620f),
+        )
+        2 -> Brush.linearGradient(
+            colors = listOf(
+                scheme.surfaceContainerLow,
+                scheme.tertiary.copy(alpha = 0.14f),
+                scheme.tertiaryContainer.copy(alpha = 0.52f),
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(520f, 720f),
+        )
+        3 -> Brush.linearGradient(
+            colors = listOf(
+                scheme.surfaceContainerLow,
+                scheme.primary.copy(alpha = 0.12f),
+                scheme.tertiaryContainer.copy(alpha = 0.48f),
+            ),
+            start = Offset(0f, 420f),
+            end = Offset(520f, 0f),
+        )
+        else -> Brush.linearGradient(
+            colors = listOf(
+                scheme.surfaceContainerLow,
+                scheme.secondary.copy(alpha = 0.12f),
+                scheme.primaryContainer.copy(alpha = 0.5f),
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(460f, 700f),
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
@@ -114,21 +172,27 @@ fun HomeScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
+    val screenBg = MaterialTheme.colorScheme.surface
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(screenBg),
+    ) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
+            containerColor = screenBg,
             topBar = {
                 ParyavaranPrimaryAppBar(
                     navigation = AppBarNavigation.None,
                     onNavigationClick = {},
                     onDebugClick = { showRoomDebug = true },
-                    onEcoKarmaClick = onOpenLeaderboard,
-                    onProfileClick = onOpenProfile,
-                    profileContentDescription = "Profile — ${profile?.nickname ?: "you"} (${profile?.userType ?: "Reporter"})",
+                    onEcoKarmaClick = null,
+                    onProfileClick = null,
                     title = {
                         ParyavaranAppBarTitle(
                             text = "Welcome",
-                            subtitle = "Quick guide · ${pagerState.currentPage + 1}/${guideSlides.size}",
+                            subtitle = "${pagerState.currentPage + 1} of ${guideSlides.size}",
                         )
                     },
                 )
@@ -147,7 +211,10 @@ fun HomeScreen(
                         .fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) { page ->
-                    GuideSlideContent(slide = guideSlides[page])
+                    GuideSlideContent(
+                        slide = guideSlides[page],
+                        pageIndex = page,
+                    )
                 }
 
                 Column(
@@ -155,12 +222,12 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     PagerDots(
                         pageCount = guideSlides.size,
                         currentPage = pagerState.currentPage,
-                        modifier = Modifier.padding(vertical = 8.dp),
+                        modifier = Modifier.padding(vertical = 4.dp),
                     )
 
                     Row(
@@ -213,7 +280,7 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .height(52.dp),
                         shape = MaterialTheme.shapes.large,
-                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp),
                     ) {
                         Text(
                             text = "Get started",
@@ -225,6 +292,7 @@ fun HomeScreen(
                 }
             }
         }
+
         RoomDebugBottomSheet(
             visible = showRoomDebug,
             onDismiss = { showRoomDebug = false },
@@ -235,38 +303,52 @@ fun HomeScreen(
 }
 
 @Composable
-private fun GuideSlideContent(slide: GuideSlide) {
-    Column(
+private fun GuideSlideContent(
+    slide: GuideSlide,
+    pageIndex: Int,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val brush = guideSlideGradientBrush(pageIndex)
+    val cardShape = RoundedCornerShape(28.dp)
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 28.dp)
-            .padding(top = 8.dp, bottom = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+            .padding(horizontal = 18.dp, vertical = 10.dp)
+            .clip(cardShape)
+            .background(brush),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = slide.emoji,
-            fontSize = 96.sp,
-            lineHeight = 104.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.padding(bottom = 24.dp),
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 26.dp, vertical = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Text(
+                text = slide.emoji,
+                fontSize = 52.sp,
+                lineHeight = 56.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
 
-        Text(
-            text = slide.title,
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-        )
+            Text(
+                text = slide.title,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = scheme.onSurface,
+                textAlign = TextAlign.Center,
+            )
 
-        Spacer(Modifier.height(12.dp))
-
-        Text(
-            text = slide.body,
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
+            Text(
+                text = slide.body,
+                style = MaterialTheme.typography.bodyLarge,
+                color = scheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                lineHeight = 26.sp,
+            )
+        }
     }
 }
 
@@ -291,7 +373,7 @@ private fun PagerDots(
                         if (selected) {
                             MaterialTheme.colorScheme.primary
                         } else {
-                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
                         },
                     ),
             )

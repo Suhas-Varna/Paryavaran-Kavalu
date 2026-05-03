@@ -112,7 +112,7 @@ fun CleanupSuccessScreen(
                 onDebugClick = { showRoomDebug = true },
                 onEcoKarmaClick = onViewLeaderboard,
                 onProfileClick = onOpenProfile,
-                profileContentDescription = "Profile — ${profile?.nickname ?: "you"} (${profile?.userType ?: "Reporter"})",
+                profileContentDescription = "Profile — ${profile?.nickname ?: "you"}",
                 title = {
                     ParyavaranAppBarTitle(
                         text = "Success",

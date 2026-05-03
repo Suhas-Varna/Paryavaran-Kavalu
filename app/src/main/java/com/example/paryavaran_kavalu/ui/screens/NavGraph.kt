@@ -1,5 +1,6 @@
 package com.example.paryavaran_kavalu.ui
 
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
@@ -128,6 +129,47 @@ fun AppNavigation() {
                     navController.navigate("profile") {
                         launchSingleTop = true
                     }
+                },
+                onOpenUserCleanupsMap = { userId, nickname ->
+                    val uid = userId ?: -1
+                    navController.navigate("user_cleanups_map/$uid/${Uri.encode(nickname)}")
+                },
+            )
+        }
+
+        composable(
+            route = "user_cleanups_map/{userId}/{nickname}",
+            arguments = listOf(
+                navArgument("userId") { type = NavType.IntType },
+                navArgument("nickname") { type = NavType.StringType },
+            ),
+        ) { entry ->
+            val userId = entry.arguments?.getInt("userId") ?: -1
+            val encoded = entry.arguments?.getString("nickname").orEmpty()
+            val nickname = Uri.decode(encoded)
+            if (nickname.isBlank()) {
+                navController.popBackStack()
+                return@composable
+            }
+            MapScreen(
+                viewModel = viewModel,
+                cleanerUserIdFilter = userId,
+                cleanerNicknameFilter = nickname,
+                onReportIncident = {},
+                onOpenLeaderboard = {
+                    navController.navigate("leaderboard") {
+                        launchSingleTop = true
+                    }
+                },
+                onOpenProfile = {
+                    navController.navigate("profile") {
+                        launchSingleTop = true
+                    }
+                },
+                onRequestCleanPhoto = {},
+                onBackToHome = { navController.popBackStack() },
+                onOpenIncidentDetail = { reportId ->
+                    navController.navigate("incident/$reportId")
                 },
             )
         }

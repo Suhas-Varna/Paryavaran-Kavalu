@@ -8,7 +8,9 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.paryavaran_kavalu.ParyavaranApplication
+import androidx.room.withTransaction
 import com.example.paryavaran_kavalu.data.MockReportsSeed
+import com.example.paryavaran_kavalu.data.RedemptionTransactionEntity
 import com.example.paryavaran_kavalu.data.ReportEntity
 import com.example.paryavaran_kavalu.data.UserTypes
 import com.example.paryavaran_kavalu.data.WasteTypeCsv
@@ -30,6 +32,14 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
     private val db = (application as ParyavaranApplication).database
     private val reportDao = db.reportDao()
     private val userDao = db.userDao()
+    private val redeemItemDao = db.redeemItemDao()
+    private val redemptionDao = db.redemptionDao()
+
+    init {
+        viewModelScope.launch {
+            syncReportNicknamesWithProfile()
+        }
+    }
 
     /**
      * Stays active while navigating Camera → Report so the map still receives new rows
@@ -56,6 +66,20 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
             null,
         )
 
+    val redeemCatalog = redeemItemDao.observeAll()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            emptyList(),
+        )
+
+    val claimedRewards = redemptionDao.observeClaimedRewards(userId = 1)
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            emptyList(),
+        )
+
     var capturedImageUri by mutableStateOf<String?>(null)
         private set
 
@@ -63,26 +87,66 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
         capturedImageUri = uriString
     }
 
-    /** Attempts to spend Eco‑karma for a reward; [onComplete] is true if the DB deduction succeeded. */
-    fun redeemEcoPoints(cost: Int, onComplete: (success: Boolean) -> Unit) {
+    /**
+     * Atomically deducts [RedeemItemEntity.costPoints] for [itemId], increments redemption count,
+     * and returns success only if the user could afford the item.
+     */
+    fun redeemReward(itemId: Long, onComplete: (success: Boolean) -> Unit) {
         viewModelScope.launch {
-            if (cost <= 0) {
+            val item = redeemItemDao.getById(itemId)
+            if (item == null || item.costPoints <= 0) {
                 onComplete(false)
                 return@launch
             }
-            val updated = userDao.tryDeductEcoPoints(cost)
-            onComplete(updated > 0)
+            val uid = userDao.getUser()?.userId ?: 1
+            val cost = item.costPoints
+            val ok = try {
+                db.withTransaction {
+                    if (userDao.tryDeductEcoPoints(cost) == 0) return@withTransaction false
+                    val existing = redemptionDao.getTransaction(uid, itemId)
+                    if (existing == null) {
+                        redemptionDao.insert(
+                            RedemptionTransactionEntity(
+                                userId = uid,
+                                itemId = itemId,
+                                timesRedeemed = 1,
+                            ),
+                        )
+                    } else {
+                        redemptionDao.update(
+                            existing.copy(timesRedeemed = existing.timesRedeemed + 1),
+                        )
+                    }
+                    true
+                }
+            } catch (_: Exception) {
+                false
+            }
+            onComplete(ok)
         }
     }
 
-    fun updateProfile(nickname: String, userType: String, bio: String, onDone: () -> Unit = {}) {
+    /** Single role on disk: everyone can report and clean; no role picker in the UI. */
+    fun updateProfile(nickname: String, bio: String, onDone: () -> Unit = {}) {
         viewModelScope.launch {
             val n = nickname.trim()
             if (n.isEmpty()) return@launch
-            val t = userType.trim().takeIf { it in UserTypes.all } ?: UserTypes.REPORTER
-            userDao.updateProfile(nickname = n, userType = t, bio = bio.trim())
+            userDao.updateProfile(nickname = n, userType = UserTypes.BOTH, bio = bio.trim())
+            syncReportNicknamesWithProfile()
             onDone()
         }
+    }
+
+    /**
+     * Copies [UserEntity.nickname] into report rows for the local user so DB mirrors profile and
+     * metadata screens stay consistent after renames. Demo “Demo patrol” reporter rows are skipped.
+     */
+    private suspend fun syncReportNicknamesWithProfile() {
+        val user = userDao.getUser() ?: return
+        val nick = user.nickname.trim().ifEmpty { "Anonymous" }
+        reportDao.syncCleanerNicknamesForLocalUser(nick)
+        reportDao.syncReporterNicknamesForLocalUser(nick, MockReportsSeed.DEMO_REPORTER_NICKNAME)
+        bumpReportWrites()
     }
 
     suspend fun submitReport(
@@ -136,6 +200,7 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
                     MockReportsSeed.buildEntities(centerLat, centerLon, pkg)
                         .forEach { reportDao.insert(it) }
                     bumpReportWrites()
+                    syncReportNicknamesWithProfile()
                     return@withLock
                 }
                 val nick = MockReportsSeed.DEMO_REPORTER_NICKNAME
@@ -147,6 +212,7 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
                 }
                 MockReportsSeed.buildEntities(centerLat, centerLon, pkg).forEach { reportDao.insert(it) }
                 bumpReportWrites()
+                syncReportNicknamesWithProfile()
             }
         }
     }
@@ -188,11 +254,16 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
                 return@launch
             }
             val now = System.currentTimeMillis()
+            val user = userDao.getUser()
+            val uid = user?.userId ?: 1
+            val cleanNick = user?.nickname?.trim().orEmpty().ifEmpty { "Anonymous" }
             reportDao.update(
                 existing.copy(
                     status = "Cleaned",
                     cleanedImageUri = cleanedImageUri.trim(),
                     cleanedAt = now,
+                    cleanerUserId = uid,
+                    cleanerNickname = cleanNick,
                 ),
             )
             userDao.addEcoPoints(EcoKarma.MARK_CLEANED)

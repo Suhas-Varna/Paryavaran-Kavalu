@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.Navigation
 import androidx.compose.material.icons.outlined.Notes
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.TwoWheeler
+import androidx.compose.material.icons.outlined.VerifiedUser
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -105,7 +106,7 @@ fun ReportDetailScreen(
             onDebugClick = { showRoomDebug = true },
             onEcoKarmaClick = onOpenLeaderboard,
             onProfileClick = onOpenProfile,
-            profileContentDescription = "Profile — ${userProfile?.nickname ?: "you"} (${userProfile?.userType ?: "Reporter"})",
+            profileContentDescription = "Profile — ${userProfile?.nickname ?: "you"}",
             title = {
                 val r = report
                 if (r == null) {
@@ -286,16 +287,42 @@ fun ReportDetailScreen(
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                     ) {
                         Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                            val metaRows = listOf(
+                            val cleanedByName: String? = if (isCleaned) {
+                                report.cleanerNickname.trim().ifBlank {
+                                    userProfile?.nickname?.trim()?.takeIf { it.isNotEmpty() } ?: "Anonymous"
+                                }
+                            } else {
+                                null
+                            }
+                            val metaRows = listOfNotNull(
                                 Triple(statusRowIcon, "Status", statusDisplay),
-                                Triple(Icons.Outlined.CoPresent, "Reported by", report.reporterNickname.ifBlank { "Anonymous" }),
-                                Triple(Icons.Outlined.Category, "Waste category", WasteTypeCsv.formatDisplay(report.wasteType)),
+                                Triple(
+                                    Icons.Outlined.CoPresent,
+                                    "Reported by",
+                                    report.reporterNickname.ifBlank { "Anonymous" },
+                                ),
+                                cleanedByName?.let { who ->
+                                    Triple(
+                                        Icons.Outlined.VerifiedUser,
+                                        "Cleaned by",
+                                        who,
+                                    )
+                                },
+                                Triple(
+                                    Icons.Outlined.Category,
+                                    "Waste category",
+                                    WasteTypeCsv.formatDisplay(report.wasteType),
+                                ),
                                 Triple(
                                     Icons.Outlined.Notes,
                                     "Notes / description",
                                     report.description.ifBlank { "—" },
                                 ),
-                                Triple(Icons.Outlined.CalendarMonth, "Reported on", dateFmt.format(Date(report.timestamp))),
+                                Triple(
+                                    Icons.Outlined.CalendarMonth,
+                                    "Reported on",
+                                    dateFmt.format(Date(report.timestamp)),
+                                ),
                                 Triple(
                                     Icons.Outlined.LocationOn,
                                     "Coordinates (stored)",

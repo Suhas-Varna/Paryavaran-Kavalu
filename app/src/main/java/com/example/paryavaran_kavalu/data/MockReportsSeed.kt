@@ -7,6 +7,12 @@ object MockReportsSeed {
 
     const val DEMO_REPORTER_NICKNAME = "Demo patrol"
 
+    /** Single-user demo: cleaned pins use local profile id 1 so leaderboard → map can filter by user. */
+    const val DEMO_CLEANER_USER_ID = 1
+
+    /** Shown in Room debug / maps when filtering by nickname fallback (seeded “already cleaned” pins). */
+    const val DEMO_CLEANER_NICKNAME = "Seeded cleanup"
+
     const val DEMO_ROW_COUNT = 10
 
     /**
@@ -50,6 +56,8 @@ object MockReportsSeed {
                 timestamp = now - index * 3_600_000L,
                 cleanedImageUri = if (cleaned) imageUri else null,
                 cleanedAt = if (cleaned) now - 1_800_000L else null,
+                cleanerUserId = if (cleaned) DEMO_CLEANER_USER_ID else null,
+                cleanerNickname = if (cleaned) DEMO_CLEANER_NICKNAME else "",
                 reporterUserId = 1,
                 reporterNickname = DEMO_REPORTER_NICKNAME,
             )

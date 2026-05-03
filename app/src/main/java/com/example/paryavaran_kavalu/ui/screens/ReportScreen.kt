@@ -202,7 +202,7 @@ fun ReportScreen(
             onDebugClick = { showRoomDebug = true },
             onEcoKarmaClick = onOpenLeaderboard,
             onProfileClick = onOpenProfile,
-            profileContentDescription = "Profile — ${profile?.nickname ?: "you"} (${profile?.userType ?: "Reporter"})",
+            profileContentDescription = "Profile — ${profile?.nickname ?: "you"}",
             title = { ParyavaranAppBarTitle(text = "Report") },
         )
         Column(

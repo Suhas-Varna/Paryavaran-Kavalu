@@ -3,6 +3,7 @@ package com.example.paryavaran_kavalu.ui.screens
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +21,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.items as lazyGridItems
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -29,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.CardGiftcard
+import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.outlined.EnergySavingsLeaf
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Groups
@@ -73,6 +76,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.paryavaran_kavalu.data.ClaimedRewardRow
+import com.example.paryavaran_kavalu.data.RedeemItemEntity
 import com.example.paryavaran_kavalu.data.ReportEntity
 import com.example.paryavaran_kavalu.data.UserEntity
 import com.example.paryavaran_kavalu.ui.EcoKarma
@@ -88,54 +93,43 @@ private data class LeaderboardEntry(
     val nickname: String,
     val points: Int,
     val isYou: Boolean,
+    /**
+     * [ReportEntity.cleanerUserId] for this player when known (for map). Null for nicknames
+     * with no stored cleanups on this device.
+     */
+    val cleanerUserId: Int?,
 )
 
-/** Static catalogue copy — replace when redemption partners are fixed. */
-private data class RedeemRewardPlaceholder(
-    val title: String,
-    val subtitle: String,
-    val costPoints: Int,
-    val icon: ImageVector,
-)
+private fun redeemIconFor(iconName: String): ImageVector = when (iconName) {
+    "LocalCafe" -> Icons.Outlined.LocalCafe
+    "Park" -> Icons.Outlined.Park
+    "ShoppingBag" -> Icons.Outlined.ShoppingBag
+    "Storefront" -> Icons.Outlined.Storefront
+    "Groups" -> Icons.Outlined.Groups
+    "CardGiftcard" -> Icons.Outlined.CardGiftcard
+    else -> Icons.Outlined.CardGiftcard
+}
 
-private val redeemRewardPlaceholders = listOf(
-    RedeemRewardPlaceholder(
-        title = "Neighbourhood café perk",
-        subtitle = "Sample voucher — partner café",
-        costPoints = 120,
-        icon = Icons.Outlined.LocalCafe,
-    ),
-    RedeemRewardPlaceholder(
-        title = "Park cleanup kit",
-        subtitle = "Gloves & bags for group drives",
-        costPoints = 200,
-        icon = Icons.Outlined.Park,
-    ),
-    RedeemRewardPlaceholder(
-        title = "Green market tote",
-        subtitle = "Reusable bag — pick‑up location TBD",
-        costPoints = 80,
-        icon = Icons.Outlined.ShoppingBag,
-    ),
-    RedeemRewardPlaceholder(
-        title = "Local store discount",
-        subtitle = "10% off at a partner shop",
-        costPoints = 150,
-        icon = Icons.Outlined.Storefront,
-    ),
-    RedeemRewardPlaceholder(
-        title = "Community event pass",
-        subtitle = "Entry to a local eco meet‑up",
-        costPoints = 100,
-        icon = Icons.Outlined.Groups,
-    ),
-    RedeemRewardPlaceholder(
-        title = "Mystery reward",
-        subtitle = "Rotating surprise from sponsors",
-        costPoints = 300,
-        icon = Icons.Outlined.CardGiftcard,
-    ),
-)
+/** Resolves [ReportEntity.cleanerUserId] from rows this nickname verified as cleaned (single-user DB). */
+private fun cleanerUserIdForNickname(
+    reports: List<ReportEntity>,
+    nickname: String,
+): Int? {
+    val n = nickname.trim()
+    val ids = reports
+        .filter { r ->
+            r.status.trim().equals("Cleaned", ignoreCase = true) &&
+                r.cleanerNickname.trim().equals(n, ignoreCase = true) &&
+                r.cleanerUserId != null
+        }
+        .mapNotNull { it.cleanerUserId }
+        .distinct()
+    return when {
+        ids.isEmpty() -> null
+        ids.size == 1 -> ids.first()
+        else -> ids.first()
+    }
+}
 
 /**
  * Merges Room profile totals with report-derived nicknames so demo neighbours from seeded pins show up.
@@ -156,10 +150,16 @@ private fun buildLeaderboardEntries(
     map[youLabel] = profile?.ecoPoints ?: map[youLabel] ?: 0
     return map.entries
         .map { (nickname, points) ->
+            val isYou = nickname.equals(youLabel, ignoreCase = true)
+            val cleanerUid = when {
+                isYou && profile != null -> profile.userId
+                else -> cleanerUserIdForNickname(reports, nickname)
+            }
             LeaderboardEntry(
                 nickname = nickname,
                 points = points,
-                isYou = nickname == youLabel,
+                isYou = isYou,
+                cleanerUserId = cleanerUid,
             )
         }
         .sortedWith(
@@ -193,29 +193,34 @@ fun LeaderboardScreen(
     viewModel: WasteReportViewModel,
     onBack: () -> Unit,
     onOpenProfile: () -> Unit,
+    onOpenUserCleanupsMap: (userId: Int?, nickname: String) -> Unit,
 ) {
     val activity = LocalContext.current as ComponentActivity
     val profile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
     val reports by viewModel.reports.collectAsStateWithLifecycle(lifecycleOwner = activity)
     var showRoomDebug by remember { mutableStateOf(false) }
     var showPointsHelp by remember { mutableStateOf(false) }
-    var redeemCelebration by remember { mutableStateOf<RedeemRewardPlaceholder?>(null) }
+    var redeemCelebration by remember { mutableStateOf<RedeemItemEntity?>(null) }
     var redeemConfettiKey by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(
         initialPage = 0,
-        pageCount = { 2 },
+        pageCount = { 3 },
     )
+
+    val redeemItems by viewModel.redeemCatalog.collectAsStateWithLifecycle(lifecycleOwner = activity)
+    val claimedRows by viewModel.claimedRewards.collectAsStateWithLifecycle(lifecycleOwner = activity)
 
     val yourPoints = profile?.ecoPoints ?: 0
     val tier = ecoTierLabel(yourPoints)
     val (progress, nextLabel) = tierProgress(yourPoints)
     val entries = remember(profile, reports) { buildLeaderboardEntries(profile, reports) }
 
-    val tabTitles = listOf("Leaderboard", "Redeem")
+    val tabTitles = listOf("Leaderboard", "Redeem", "Claimed")
     val tabIcons = listOf(
         Icons.Outlined.Leaderboard,
         Icons.Outlined.CardGiftcard,
+        Icons.Outlined.TaskAlt,
     )
 
     Box(Modifier.fillMaxSize()) {
@@ -227,7 +232,7 @@ fun LeaderboardScreen(
                 onDebugClick = { showRoomDebug = true },
                 onEcoKarmaClick = null,
                 onProfileClick = onOpenProfile,
-                profileContentDescription = "Profile — ${profile?.nickname ?: "you"} (${profile?.userType ?: "Reporter"})",
+                profileContentDescription = "Profile — ${profile?.nickname ?: "you"}",
                 onHelpClick = { showPointsHelp = true },
                 title = {
                     ParyavaranAppBarTitle(text = "Eco‑karma")
@@ -281,17 +286,22 @@ fun LeaderboardScreen(
                         0 -> LeaderboardTable(
                             entries = entries,
                             youLabel = profile?.nickname?.trim()?.takeIf { it.isNotEmpty() } ?: "You",
+                            onOpenUserCleanupsMap = onOpenUserCleanupsMap,
                         )
-                        else -> RedeemPlaceholder(
+                        1 -> RedeemPlaceholder(
+                            catalogue = redeemItems,
                             currentEcoPoints = yourPoints,
-                            onRedeemReward = { reward ->
-                                viewModel.redeemEcoPoints(reward.costPoints) { ok ->
+                            onRedeemReward = { item ->
+                                viewModel.redeemReward(item.id) { ok ->
                                     if (ok) {
                                         redeemConfettiKey++
-                                        redeemCelebration = reward
+                                        redeemCelebration = item
                                     }
                                 }
                             },
+                        )
+                        else -> ClaimedRewardsSection(
+                            rows = claimedRows,
                         )
                     }
                 }
@@ -309,9 +319,9 @@ fun LeaderboardScreen(
             EcoKarmaPointsDialog(onDismiss = { showPointsHelp = false })
         }
 
-        redeemCelebration?.let { reward ->
+        redeemCelebration?.let { item ->
             RedeemSuccessOverlay(
-                reward = reward,
+                reward = item,
                 confettiKey = redeemConfettiKey,
                 onDismiss = { redeemCelebration = null },
             )
@@ -420,6 +430,7 @@ private fun EcoKarmaGameCard(
 private fun LeaderboardTable(
     entries: List<LeaderboardEntry>,
     youLabel: String,
+    onOpenUserCleanupsMap: (userId: Int?, nickname: String) -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -458,13 +469,14 @@ private fun LeaderboardTable(
             }
             HorizontalDivider()
         }
-        itemsIndexed(entries, key = { _, e -> e.nickname }) { index, entry ->
+        itemsIndexed(entries, key = { i, e -> "${e.nickname}-$i" }) { index, entry ->
             val rank = index + 1
             val initial = entry.nickname.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
             val highlight = entry.nickname == youLabel
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clickable { onOpenUserCleanupsMap(entry.cleanerUserId, entry.nickname) }
                     .padding(vertical = 12.dp, horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -537,8 +549,9 @@ private fun LeaderboardTable(
 
 @Composable
 private fun RedeemPlaceholder(
+    catalogue: List<RedeemItemEntity>,
     currentEcoPoints: Int,
-    onRedeemReward: (RedeemRewardPlaceholder) -> Unit,
+    onRedeemReward: (RedeemItemEntity) -> Unit,
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -562,31 +575,43 @@ private fun RedeemPlaceholder(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Placeholder rewards — point costs and partners will be finalised later.",
+                    text = "Choose a reward. Point costs are stored in the catalogue on your device.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        items(redeemRewardPlaceholders, key = { it.title }) { reward ->
-            RedeemRewardCard(
-                reward = reward,
-                currentEcoPoints = currentEcoPoints,
-                canAfford = currentEcoPoints >= reward.costPoints,
-                onRedeem = { onRedeemReward(reward) },
-            )
+        if (catalogue.isEmpty()) {
+            item(span = { GridItemSpan(2) }) {
+                Text(
+                    text = "Loading catalogue…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
+        } else {
+            lazyGridItems(catalogue, key = { it.id }) { reward ->
+                RedeemRewardCard(
+                    reward = reward,
+                    currentEcoPoints = currentEcoPoints,
+                    canAfford = currentEcoPoints >= reward.costPoints,
+                    onRedeem = { onRedeemReward(reward) },
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun RedeemRewardCard(
-    reward: RedeemRewardPlaceholder,
+    reward: RedeemItemEntity,
     currentEcoPoints: Int,
     canAfford: Boolean,
     onRedeem: () -> Unit,
 ) {
     val ptsShort = (reward.costPoints - currentEcoPoints).coerceAtLeast(0)
+    val icon = redeemIconFor(reward.iconName)
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -598,8 +623,15 @@ private fun RedeemRewardCard(
         Column(
             modifier = Modifier.padding(14.dp),
         ) {
+            Text(
+                text = reward.category,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.tertiary,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(6.dp))
             Icon(
-                imageVector = reward.icon,
+                imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(32.dp),
                 tint = MaterialTheme.colorScheme.primary,
@@ -668,11 +700,143 @@ private fun RedeemRewardCard(
     }
 }
 
+@Composable
+private fun ClaimedRewardsSection(
+    rows: List<ClaimedRewardRow>,
+) {
+    if (rows.isEmpty()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.TaskAlt,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.outline,
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = "No claimed rewards yet",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "When you redeem from the Redeem tab, your choices appear here with how many times you have claimed each one.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Text(
+                    text = "Claimed rewards",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "Item ID, category, and how many times you redeemed each reward.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+            }
+            items(rows, key = { it.itemId }) { row ->
+                ClaimedRewardRowCard(row = row)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClaimedRewardRowCard(row: ClaimedRewardRow) {
+    val icon = redeemIconFor(row.iconName)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(30.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "ID ${row.itemId} · ${row.category}",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.tertiary,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = row.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = row.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = "×${row.timesRedeemed}",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = "redeemed",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
 private val RedeemSuccessGreen = Color(0xFF1B5E20)
 
 @Composable
 private fun RedeemSuccessOverlay(
-    reward: RedeemRewardPlaceholder,
+    reward: RedeemItemEntity,
     confettiKey: Int,
     onDismiss: () -> Unit,
 ) {
@@ -734,6 +898,13 @@ private fun RedeemSuccessOverlay(
                             textAlign = TextAlign.Center,
                         )
                         Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = reward.category,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(8.dp))
                         Text(
                             text = "−${reward.costPoints} Eco‑karma",
                             style = MaterialTheme.typography.titleLarge,

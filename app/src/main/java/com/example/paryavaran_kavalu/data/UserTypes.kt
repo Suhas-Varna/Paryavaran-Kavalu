@@ -1,6 +1,6 @@
 package com.example.paryavaran_kavalu.data
 
-/** Stored in [UserEntity.userType] — single-device profile roles for reporting vs cleanup. */
+/** Stored in [UserEntity.userType] — legacy values; the app no longer exposes roles in the UI. */
 object UserTypes {
     const val REPORTER = "Reporter"
     const val VOLUNTEER = "Volunteer"

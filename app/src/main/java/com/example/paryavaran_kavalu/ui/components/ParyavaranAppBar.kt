@@ -51,8 +51,9 @@ fun ParyavaranPrimaryAppBar(
     onDebugClick: () -> Unit,
     /** When non-null, the Eco‑karma leaf action is shown before profile (omit on the Eco‑karma screen). */
     onEcoKarmaClick: (() -> Unit)? = null,
-    onProfileClick: () -> Unit,
-    profileContentDescription: String,
+    /** When non-null, the profile action is shown (omit on the welcome / home guide screen). */
+    onProfileClick: (() -> Unit)? = null,
+    profileContentDescription: String = "",
     modifier: Modifier = Modifier,
     navigationContentDescription: String = "Back",
     /** When non-null, a help icon is shown before the Eco‑karma action (e.g. points guide). */
@@ -135,16 +136,27 @@ fun ParyavaranPrimaryAppBar(
                     )
                 }
             }
-            IconButton(
-                onClick = onProfileClick,
-                modifier = Modifier.size(48.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.AccountCircle,
-                    contentDescription = profileContentDescription,
-                    tint = onPrimary,
-                    modifier = Modifier.size(28.dp),
-                )
+            if (onProfileClick != null) {
+                IconButton(
+                    onClick = onProfileClick,
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.AccountCircle,
+                        contentDescription = profileContentDescription.ifEmpty { "Profile" },
+                        tint = onPrimary,
+                        modifier = Modifier.size(28.dp),
+                    )
+                }
+            }
+            // Keep title visually centred: left has nav slot + debug (2×48dp); balance when fewer right actions.
+            val rightIconCount =
+                (if (onHelpClick != null) 1 else 0) +
+                    (if (onEcoKarmaClick != null) 1 else 0) +
+                    (if (onProfileClick != null) 1 else 0)
+            val balanceEndDp = ((2 - rightIconCount) * 48).coerceAtLeast(0)
+            if (balanceEndDp > 0) {
+                Spacer(Modifier.width(balanceEndDp.dp))
             }
         }
     }

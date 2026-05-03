@@ -2,6 +2,7 @@ package com.example.paryavaran_kavalu
 
 import android.app.Application
 import com.example.paryavaran_kavalu.data.AppDatabase
+import com.example.paryavaran_kavalu.data.RedeemCatalogSeed
 import com.example.paryavaran_kavalu.data.UserEntity
 import com.example.paryavaran_kavalu.data.UserTypes
 import kotlinx.coroutines.CoroutineScope
@@ -29,11 +30,15 @@ class ParyavaranApplication : Application() {
                     UserEntity(
                         userId = 1,
                         nickname = "Eco Warrior",
-                        userType = UserTypes.REPORTER,
+                        userType = UserTypes.BOTH,
                         bio = "",
                         ecoPoints = 0,
                     ),
                 )
+            }
+            val redeemDao = database.redeemItemDao()
+            if (redeemDao.count() == 0) {
+                redeemDao.insertAll(RedeemCatalogSeed.all)
             }
         }
     }

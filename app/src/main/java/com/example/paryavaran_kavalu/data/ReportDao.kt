@@ -28,4 +28,28 @@ interface ReportDao {
 
     @Query("DELETE FROM reports")
     suspend fun deleteAllReports()
+
+    /**
+     * Keeps [ReportEntity.cleanerNickname] aligned with the single local profile for all cleanups
+     * attributed to [cleanerUserId] 1 (offline single-user model).
+     */
+    @Query(
+        """
+        UPDATE reports SET cleanerNickname = :nickname
+        WHERE cleanerUserId = 1 AND LOWER(TRIM(status)) = 'cleaned'
+        """,
+    )
+    suspend fun syncCleanerNicknamesForLocalUser(nickname: String)
+
+    /**
+     * Updates reporter display names for rows filed by the local user, excluding the seeded
+     * “Demo patrol” demo cluster when [excludeReporterNickname] matches.
+     */
+    @Query(
+        """
+        UPDATE reports SET reporterNickname = :nickname
+        WHERE reporterUserId = 1 AND reporterNickname != :excludeReporterNickname
+        """,
+    )
+    suspend fun syncReporterNicknamesForLocalUser(nickname: String, excludeReporterNickname: String)
 }

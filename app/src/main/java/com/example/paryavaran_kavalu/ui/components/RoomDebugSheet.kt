@@ -70,7 +70,7 @@ fun RoomDebugSheetContent(
     ) {
         Text("Room (debug)", style = MaterialTheme.typography.titleLarge)
         Text(
-            "Tables user_profile and reports — verify new incidents appear after submit.",
+            "Tables user_profile and reports — verify submits and cleanup fields (cleanerUserId, cleanerNickname, cleanedAt).",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -174,6 +174,10 @@ private fun ReportsDebugTableHeader() {
         DebugCell("reporter", 88, isHeader = true)
         DebugCell("time", 108, isHeader = true)
         DebugCell("imageUri (trunc.)", 120, isHeader = true)
+        DebugCell("cleanedAt", 108, isHeader = true)
+        DebugCell("cleanerUserId", 88, isHeader = true)
+        DebugCell("cleanerNickname", 104, isHeader = true)
+        DebugCell("cleanedImg (trunc.)", 120, isHeader = true)
     }
 }
 
@@ -185,6 +189,10 @@ private fun ReportsDebugTableRow(
     val uriShort = report.imageUri.let { u ->
         if (u.length <= 28) u else u.take(12) + "…" + u.takeLast(12)
     }
+    val cleanedUriShort = report.cleanedImageUri?.let { u ->
+        if (u.length <= 28) u else u.take(12) + "…" + u.takeLast(12)
+    } ?: "—"
+    val cleanedAtStr = report.cleanedAt?.let { dateFmt.format(Date(it)) } ?: "—"
     Row(Modifier.padding(vertical = 6.dp, horizontal = 4.dp)) {
         DebugCell(report.id.toString(), 44, isHeader = false)
         DebugCell(
@@ -207,6 +215,10 @@ private fun ReportsDebugTableRow(
         DebugCell(report.reporterNickname.ifBlank { "—" }, 88, isHeader = false)
         DebugCell(dateFmt.format(Date(report.timestamp)), 108, isHeader = false)
         DebugCell(uriShort, 120, isHeader = false)
+        DebugCell(cleanedAtStr, 108, isHeader = false)
+        DebugCell(report.cleanerUserId?.toString() ?: "—", 88, isHeader = false)
+        DebugCell(report.cleanerNickname.trim().ifBlank { "—" }, 104, isHeader = false)
+        DebugCell(cleanedUriShort, 120, isHeader = false)
     }
 }
 
