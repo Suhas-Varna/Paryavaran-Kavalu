@@ -67,7 +67,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.paryavaran_kavalu.ui.components.AppBarNavigation
 import com.example.paryavaran_kavalu.ui.components.ParyavaranPrimaryAppBar
-import com.example.paryavaran_kavalu.ui.components.RoomDebugBottomSheet
 import com.example.paryavaran_kavalu.data.WasteTypeCsv
 import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 import com.example.paryavaran_kavalu.util.MapsTravelMode
@@ -93,8 +92,6 @@ fun ReportDetailScreen(
     val reports by viewModel.reports.collectAsStateWithLifecycle(lifecycleOwner = activity)
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
     val report = reports.find { it.id == reportId }
-    var showRoomDebug by remember { mutableStateOf(false) }
-
     val dateFmt = rememberDateFormatter()
 
     val onPrimary = MaterialTheme.colorScheme.onPrimary
@@ -103,7 +100,6 @@ fun ReportDetailScreen(
             navigation = AppBarNavigation.Back,
             onNavigationClick = onBack,
             navigationContentDescription = "Back to map",
-            onDebugClick = { showRoomDebug = true },
             onEcoKarmaClick = onOpenLeaderboard,
             onProfileClick = onOpenProfile,
             profileContentDescription = "Profile — ${userProfile?.nickname ?: "you"}",
@@ -509,12 +505,6 @@ fun ReportDetailScreen(
             }
         }
     }
-    RoomDebugBottomSheet(
-        visible = showRoomDebug,
-        onDismiss = { showRoomDebug = false },
-        user = userProfile,
-        reports = reports,
-    )
 }
 
 @Composable

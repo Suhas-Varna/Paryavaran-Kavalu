@@ -26,6 +26,20 @@ interface ReportDao {
     @Query("DELETE FROM reports WHERE reporterNickname = :nickname")
     suspend fun deleteByReporterNickname(nickname: String)
 
+    /**
+     * Seeded “Demo patrol” rows verified clean by [cleanerUserId] — used to adjust eco points when
+     * replacing the demo cluster.
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM reports
+        WHERE reporterNickname = :demoReporterNick
+        AND LOWER(TRIM(status)) = 'cleaned'
+        AND cleanerUserId = :cleanerUserId
+        """,
+    )
+    suspend fun countDemoCleanupsForCleaner(demoReporterNick: String, cleanerUserId: Int): Int
+
     @Query("DELETE FROM reports")
     suspend fun deleteAllReports()
 

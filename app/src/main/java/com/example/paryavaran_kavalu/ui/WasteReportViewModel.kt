@@ -15,6 +15,7 @@ import com.example.paryavaran_kavalu.data.ReportEntity
 import com.example.paryavaran_kavalu.data.UserTypes
 import com.example.paryavaran_kavalu.data.WasteTypeCsv
 import com.example.paryavaran_kavalu.util.isProbablyEmulator
+import com.example.paryavaran_kavalu.util.distanceMeters
 import com.example.paryavaran_kavalu.util.offsetLatLon
 import kotlin.random.Random
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -193,27 +194,113 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             demoSeedMutex.withLock {
                 val pkg = getApplication<Application>().packageName
+                val user = userDao.getUser()
+                val profileNick = user?.nickname?.trim().orEmpty().ifEmpty { "Anonymous" }
+                val uid = user?.userId ?: 1
+                val demoReporterNick = MockReportsSeed.DEMO_REPORTER_NICKNAME
+
+                if (!seedPrefs.getBoolean(PREF_DEMO_RESEED_SPREAD_V2, false)) {
+                    if (reportDao.countByReporterNickname(demoReporterNick) > 0) {
+                        val priorSpread = reportDao.countDemoCleanupsForCleaner(demoReporterNick, uid)
+                        reportDao.deleteByReporterNickname(demoReporterNick)
+                        val spreadBuilt = MockReportsSeed.buildEntities(
+                            centerLat,
+                            centerLon,
+                            pkg,
+                            uid,
+                            profileNick,
+                        )
+                        spreadBuilt.forEach { reportDao.insert(it) }
+                        applyDemoCleanupEcoDelta(priorSpread, spreadBuilt, uid)
+                        bumpReportWrites()
+                        syncReportNicknamesWithProfile()
+                    }
+                    seedPrefs.edit().putBoolean(PREF_DEMO_RESEED_SPREAD_V2, true).apply()
+                    if (reportDao.countByReporterNickname(demoReporterNick) >= MockReportsSeed.DEMO_ROW_COUNT) {
+                        return@withLock
+                    }
+                }
+
+                if (!seedPrefs.getBoolean(PREF_DEMO_NEAR_RING_V3, false)) {
+                    if (reportDao.countByReporterNickname(demoReporterNick) > 0) {
+                        val priorNear = reportDao.countDemoCleanupsForCleaner(demoReporterNick, uid)
+                        reportDao.deleteByReporterNickname(demoReporterNick)
+                        val nearBuilt = MockReportsSeed.buildEntities(
+                            centerLat,
+                            centerLon,
+                            pkg,
+                            uid,
+                            profileNick,
+                        )
+                        nearBuilt.forEach { reportDao.insert(it) }
+                        applyDemoCleanupEcoDelta(priorNear, nearBuilt, uid)
+                        bumpReportWrites()
+                        syncReportNicknamesWithProfile()
+                    }
+                    seedPrefs.edit().putBoolean(PREF_DEMO_NEAR_RING_V3, true).apply()
+                    if (reportDao.countByReporterNickname(demoReporterNick) >= MockReportsSeed.DEMO_ROW_COUNT) {
+                        return@withLock
+                    }
+                }
+
                 val demoClusterDone = seedPrefs.getBoolean(PREF_DEMO_CLUSTER_APPLIED, false)
                 if (!demoClusterDone) {
                     seedPrefs.edit().putBoolean(PREF_DEMO_CLUSTER_APPLIED, true).apply()
+                    val priorDemoCleanups = reportDao.countDemoCleanupsForCleaner(demoReporterNick, uid)
                     reportDao.deleteAllReports()
-                    MockReportsSeed.buildEntities(centerLat, centerLon, pkg)
-                        .forEach { reportDao.insert(it) }
+                    val built = MockReportsSeed.buildEntities(
+                        centerLat,
+                        centerLon,
+                        pkg,
+                        uid,
+                        profileNick,
+                    )
+                    built.forEach { reportDao.insert(it) }
+                    applyDemoCleanupEcoDelta(priorDemoCleanups, built, uid)
                     bumpReportWrites()
                     syncReportNicknamesWithProfile()
                     return@withLock
                 }
-                val nick = MockReportsSeed.DEMO_REPORTER_NICKNAME
-                if (reportDao.countByReporterNickname(nick) >= MockReportsSeed.DEMO_ROW_COUNT) {
-                    return@withLock
+                val existingDemoRows = reports.value.filter { it.reporterNickname == demoReporterNick }
+                if (existingDemoRows.size >= MockReportsSeed.DEMO_ROW_COUNT) {
+                    val avgLat = existingDemoRows.sumOf { it.latitude } / existingDemoRows.size
+                    val avgLon = existingDemoRows.sumOf { it.longitude } / existingDemoRows.size
+                    val centerDistanceM = distanceMeters(centerLat, centerLon, avgLat, avgLon)
+                    if (centerDistanceM <= DEMO_RESEED_DISTANCE_METERS) {
+                        return@withLock
+                    }
                 }
-                if (reportDao.countByReporterNickname(nick) > 0) {
-                    reportDao.deleteByReporterNickname(nick)
+                val priorDemoCleanups = reportDao.countDemoCleanupsForCleaner(demoReporterNick, uid)
+                if (reportDao.countByReporterNickname(demoReporterNick) > 0) {
+                    reportDao.deleteByReporterNickname(demoReporterNick)
                 }
-                MockReportsSeed.buildEntities(centerLat, centerLon, pkg).forEach { reportDao.insert(it) }
+                val built = MockReportsSeed.buildEntities(
+                    centerLat,
+                    centerLon,
+                    pkg,
+                    uid,
+                    profileNick,
+                )
+                built.forEach { reportDao.insert(it) }
+                applyDemoCleanupEcoDelta(priorDemoCleanups, built, uid)
                 bumpReportWrites()
                 syncReportNicknamesWithProfile()
             }
+        }
+    }
+
+    private suspend fun applyDemoCleanupEcoDelta(
+        previousUserDemoCleanups: Int,
+        newRows: List<ReportEntity>,
+        userId: Int,
+    ) {
+        val newUserCleanups = newRows.count { row ->
+            row.cleanerUserId == userId &&
+                row.status.trim().equals("Cleaned", ignoreCase = true)
+        }
+        val delta = newUserCleanups - previousUserDemoCleanups
+        if (delta != 0) {
+            userDao.addEcoPoints(delta * EcoKarma.MARK_CLEANED)
         }
     }
 
@@ -231,10 +318,13 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
 
     private companion object {
         const val PREF_DEMO_CLUSTER_APPLIED = "demo_cluster_near_center_applied_v1"
+        const val PREF_DEMO_RESEED_SPREAD_V2 = "demo_reseed_spread_v2_done"
+        const val PREF_DEMO_NEAR_RING_V3 = "demo_near_ring_v3_done"
+        const val DEMO_RESEED_DISTANCE_METERS = 8_000.0
     }
 
     /**
-     * @param onComplete Invoked on the main thread after DB work. Passes [EcoKarma.MARK_CLEANED]
+     * @param onComplete Invoked on the main thread after DB work. Passes [EcoKarma.MARK_CLEANED] points
      * when the row was updated and points were awarded; `null` if the report was missing or
      * already cleaned (no duplicate reward).
      */
@@ -274,6 +364,6 @@ class WasteReportViewModel(application: Application) : AndroidViewModel(applicat
 }
 
 object EcoKarma {
-    const val SUBMIT_REPORT = 10
-    const val MARK_CLEANED = 25
+    const val SUBMIT_REPORT = 20
+    const val MARK_CLEANED = 30
 }

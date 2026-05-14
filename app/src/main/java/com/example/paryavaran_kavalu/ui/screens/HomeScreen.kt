@@ -55,7 +55,6 @@ import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 import com.example.paryavaran_kavalu.ui.components.AppBarNavigation
 import com.example.paryavaran_kavalu.ui.components.ParyavaranAppBarTitle
 import com.example.paryavaran_kavalu.ui.components.ParyavaranPrimaryAppBar
-import com.example.paryavaran_kavalu.ui.components.RoomDebugBottomSheet
 
 private data class GuideSlide(
     val emoji: String,
@@ -155,9 +154,6 @@ fun HomeScreen(
 ) {
     val activity = LocalContext.current as ComponentActivity
     val profile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
-    val reports by viewModel.reports.collectAsStateWithLifecycle(lifecycleOwner = activity)
-    var showRoomDebug by remember { mutableStateOf(false) }
-
     val pagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { guideSlides.size },
@@ -186,7 +182,6 @@ fun HomeScreen(
                 ParyavaranPrimaryAppBar(
                     navigation = AppBarNavigation.None,
                     onNavigationClick = {},
-                    onDebugClick = { showRoomDebug = true },
                     onEcoKarmaClick = null,
                     onProfileClick = null,
                     title = {
@@ -292,13 +287,6 @@ fun HomeScreen(
                 }
             }
         }
-
-        RoomDebugBottomSheet(
-            visible = showRoomDebug,
-            onDismiss = { showRoomDebug = false },
-            user = profile,
-            reports = reports,
-        )
     }
 }
 

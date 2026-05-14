@@ -3,6 +3,7 @@ package com.example.paryavaran_kavalu.ui.screens
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -65,6 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -86,8 +88,8 @@ import com.example.paryavaran_kavalu.ui.components.AppBarNavigation
 import com.example.paryavaran_kavalu.ui.components.PartyPopperBurst
 import com.example.paryavaran_kavalu.ui.components.ParyavaranAppBarTitle
 import com.example.paryavaran_kavalu.ui.components.ParyavaranPrimaryAppBar
-import com.example.paryavaran_kavalu.ui.components.RoomDebugBottomSheet
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 private data class LeaderboardEntry(
     val nickname: String,
@@ -108,6 +110,22 @@ private fun redeemIconFor(iconName: String): ImageVector = when (iconName) {
     "Groups" -> Icons.Outlined.Groups
     "CardGiftcard" -> Icons.Outlined.CardGiftcard
     else -> Icons.Outlined.CardGiftcard
+}
+
+private fun redeemHeroBrush(iconName: String): Brush {
+    val colors = when (iconName) {
+        "LocalCafe" -> listOf(Color(0xFF4E342E), Color(0xFFFFB300))
+        "Park" -> listOf(Color(0xFF1B5E20), Color(0xFF66BB6A))
+        "ShoppingBag" -> listOf(Color(0xFF004D40), Color(0xFF26A69A))
+        "Storefront" -> listOf(Color(0xFF0D47A1), Color(0xFF42A5F5))
+        "Groups" -> listOf(Color(0xFF311B92), Color(0xFF9575CD))
+        else -> listOf(Color(0xFFB71C1C), Color(0xFFFF9800))
+    }
+    return Brush.linearGradient(
+        colors = colors,
+        start = Offset(0f, 0f),
+        end = Offset(220f, 140f),
+    )
 }
 
 /** Resolves [ReportEntity.cleanerUserId] from rows this nickname verified as cleaned (single-user DB). */
@@ -198,7 +216,6 @@ fun LeaderboardScreen(
     val activity = LocalContext.current as ComponentActivity
     val profile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
     val reports by viewModel.reports.collectAsStateWithLifecycle(lifecycleOwner = activity)
-    var showRoomDebug by remember { mutableStateOf(false) }
     var showPointsHelp by remember { mutableStateOf(false) }
     var redeemCelebration by remember { mutableStateOf<RedeemItemEntity?>(null) }
     var redeemConfettiKey by remember { mutableIntStateOf(0) }
@@ -229,7 +246,6 @@ fun LeaderboardScreen(
                 navigation = AppBarNavigation.Back,
                 onNavigationClick = onBack,
                 navigationContentDescription = "Back",
-                onDebugClick = { showRoomDebug = true },
                 onEcoKarmaClick = null,
                 onProfileClick = onOpenProfile,
                 profileContentDescription = "Profile — ${profile?.nickname ?: "you"}",
@@ -307,13 +323,6 @@ fun LeaderboardScreen(
                 }
             }
         }
-
-        RoomDebugBottomSheet(
-            visible = showRoomDebug,
-            onDismiss = { showRoomDebug = false },
-            user = profile,
-            reports = reports,
-        )
 
         if (showPointsHelp) {
             EcoKarmaPointsDialog(onDismiss = { showPointsHelp = false })
@@ -612,89 +621,124 @@ private fun RedeemRewardCard(
 ) {
     val ptsShort = (reward.costPoints - currentEcoPoints).coerceAtLeast(0)
     val icon = redeemIconFor(reward.iconName)
+    val hero = redeemHeroBrush(reward.iconName)
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
+                shape = RoundedCornerShape(20.dp),
+            ),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 5.dp,
+            pressedElevation = 2.dp,
+            hoveredElevation = 8.dp,
+        ),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+            containerColor = MaterialTheme.colorScheme.surface,
         ),
     ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-        ) {
-            Text(
-                text = reward.category,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.tertiary,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.height(6.dp))
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(32.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = reward.title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = reward.subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(102.dp)
+                    .background(hero)
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                contentAlignment = Alignment.CenterStart,
             ) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.22f)),
+                        contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.EnergySavingsLeaf,
+                            imageVector = icon,
                             contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(30.dp),
+                            tint = Color.White,
                         )
-                        Spacer(Modifier.width(4.dp))
+                    }
+                    Spacer(Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "${reward.costPoints} pts",
-                            style = MaterialTheme.typography.labelLarge,
+                            text = reward.category.uppercase(Locale.getDefault()),
+                            style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = Color.White.copy(alpha = 0.9f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = reward.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
             }
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = onRedeem,
-                enabled = canAfford,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                 Text(
-                    when {
-                        canAfford -> "Redeem"
-                        ptsShort > 0 -> "$ptsShort pts short"
-                        else -> "Need ${reward.costPoints} pts"
-                    },
+                    text = reward.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
                 )
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.EnergySavingsLeaf,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "${reward.costPoints} pts",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onRedeem,
+                    enabled = canAfford,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text(
+                        when {
+                            canAfford -> "Redeem"
+                            ptsShort > 0 -> "$ptsShort pts short"
+                            else -> "Need ${reward.costPoints} pts"
+                        },
+                    )
+                }
             }
         }
     }
@@ -762,71 +806,137 @@ private fun ClaimedRewardsSection(
 @Composable
 private fun ClaimedRewardRowCard(row: ClaimedRewardRow) {
     val icon = redeemIconFor(row.iconName)
+    val hero = redeemHeroBrush(row.iconName)
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
+                shape = RoundedCornerShape(20.dp),
+            ),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = 4.dp,
+            pressedElevation = 2.dp,
+            hoveredElevation = 7.dp,
+        ),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            containerColor = MaterialTheme.colorScheme.surface,
         ),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center,
+                    .fillMaxWidth()
+                    .height(100.dp)
+                    .background(hero)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                contentAlignment = Alignment.CenterStart,
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(30.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.22f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                            tint = Color.White,
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = row.category.uppercase(Locale.getDefault()),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White.copy(alpha = 0.9f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = row.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(
+                            text = "×${row.timesRedeemed}",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                        )
+                        Text(
+                            text = "claimed",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.85f),
+                        )
+                    }
+                }
             }
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "ID ${row.itemId} · ${row.category}",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = row.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(2.dp))
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                 Text(
                     text = row.subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "×${row.timesRedeemed}",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    text = "redeemed",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.65f),
+                    ) {
+                        Text(
+                            text = "Reward ID · ${row.itemId}",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.EnergySavingsLeaf,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "${row.costPoints} pts each",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
             }
         }
     }

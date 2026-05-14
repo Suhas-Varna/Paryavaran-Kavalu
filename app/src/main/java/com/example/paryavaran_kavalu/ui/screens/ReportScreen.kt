@@ -45,7 +45,6 @@ import com.example.paryavaran_kavalu.util.isProbablyEmulator
 import com.example.paryavaran_kavalu.ui.components.AppBarNavigation
 import com.example.paryavaran_kavalu.ui.components.ParyavaranAppBarTitle
 import com.example.paryavaran_kavalu.ui.components.ParyavaranPrimaryAppBar
-import com.example.paryavaran_kavalu.ui.components.RoomDebugBottomSheet
 import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -128,9 +127,6 @@ fun ReportScreen(
     val activity = context as ComponentActivity
     val scope = rememberCoroutineScope()
     val profile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
-    val reports by viewModel.reports.collectAsStateWithLifecycle(lifecycleOwner = activity)
-    var showRoomDebug by remember { mutableStateOf(false) }
-
     var description by remember { mutableStateOf("") }
     var selectedWasteTypes by remember { mutableStateOf(setOf<String>()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -199,7 +195,6 @@ fun ReportScreen(
             navigation = AppBarNavigation.Back,
             onNavigationClick = onBack,
             navigationContentDescription = "Back",
-            onDebugClick = { showRoomDebug = true },
             onEcoKarmaClick = onOpenLeaderboard,
             onProfileClick = onOpenProfile,
             profileContentDescription = "Profile — ${profile?.nickname ?: "you"}",
@@ -363,10 +358,4 @@ fun ReportScreen(
         }
         }
     }
-    RoomDebugBottomSheet(
-        visible = showRoomDebug,
-        onDismiss = { showRoomDebug = false },
-        user = profile,
-        reports = reports,
-    )
 }

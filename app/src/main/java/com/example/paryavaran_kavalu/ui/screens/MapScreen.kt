@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,6 +30,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -68,7 +71,6 @@ import com.example.paryavaran_kavalu.data.WasteTypeCsv
 import com.example.paryavaran_kavalu.ui.components.AppBarNavigation
 import com.example.paryavaran_kavalu.ui.components.ParyavaranAppBarTitle
 import com.example.paryavaran_kavalu.ui.components.ParyavaranPrimaryAppBar
-import com.example.paryavaran_kavalu.ui.components.RoomDebugBottomSheet
 import com.example.paryavaran_kavalu.ui.EcoKarma
 import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 import com.example.paryavaran_kavalu.util.distanceMeters
@@ -159,8 +161,6 @@ fun MapScreen(
     val mapRefreshGen by viewModel.reportWriteGeneration.collectAsStateWithLifecycle(lifecycleOwner = activity)
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
 
-    var showRoomDebug by remember { mutableStateOf(false) }
-
     var currentLocation by remember {
         mutableStateOf(GeoPoint(12.9716, 77.5946))
     }
@@ -248,6 +248,14 @@ fun MapScreen(
     }
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
+    /**
+     * Bumps after each location pass (or once when fine location is denied) so the map camera
+     * recenters only after [currentLocation] matches that pass. Without this, the first center
+     * locks onto the default Bangalore point while Fused Location later moves pins (and the user
+     * marker) to the emulator/device fix — pins look "missing".
+     */
+    var locationSettlementVersion by remember { mutableIntStateOf(0) }
+    var lastSettlementUsedForCamera by remember { mutableIntStateOf(-1) }
 
     LaunchedEffect(mapViewRef, filteredReports, currentLocation, mapSyncToken) {
         val map = mapViewRef ?: return@LaunchedEffect
@@ -267,6 +275,16 @@ fun MapScreen(
         val avgLon = pts.sumOf { it.longitude } / pts.size
         map.controller.animateTo(GeoPoint(avgLat, avgLon))
         map.controller.setZoom(13.0)
+    }
+
+    LaunchedEffect(mapViewRef, currentLocation, userHistoryMode, locationSettlementVersion) {
+        if (userHistoryMode) return@LaunchedEffect
+        val map = mapViewRef ?: return@LaunchedEffect
+        val v = locationSettlementVersion
+        if (v <= 0 || v == lastSettlementUsedForCamera) return@LaunchedEffect
+        lastSettlementUsedForCamera = v
+        map.controller.animateTo(currentLocation)
+        map.controller.setZoom(16.5)
     }
 
     var locationPermissionGranted by remember {
@@ -315,15 +333,21 @@ fun MapScreen(
     }
 
     LaunchedEffect(locationPermissionGranted, locationRefreshTick) {
-        if (!locationPermissionGranted) return@LaunchedEffect
+        if (!locationPermissionGranted) {
+            // Let the nearby map use the default centre when location is unavailable.
+            if (locationSettlementVersion == 0) {
+                locationSettlementVersion = 1
+            }
+            return@LaunchedEffect
+        }
         val fused = LocationServices.getFusedLocationProviderClient(context)
         try {
-            var loc = fused.lastLocation.await()
+            var loc = fused.getCurrentLocation(
+                Priority.PRIORITY_HIGH_ACCURACY,
+                CancellationTokenSource().token,
+            ).await()
             if (loc == null) {
-                loc = fused.getCurrentLocation(
-                    Priority.PRIORITY_HIGH_ACCURACY,
-                    CancellationTokenSource().token,
-                ).await()
+                loc = fused.lastLocation.await()
             }
             loc?.let {
                 currentLocation = GeoPoint(it.latitude, it.longitude)
@@ -333,22 +357,27 @@ fun MapScreen(
             }
         } catch (e: SecurityException) {
             e.printStackTrace()
+        } finally {
+            locationSettlementVersion++
         }
     }
 
     /** If fused location stays null (some emulators), still seed once around the map centre. */
-    LaunchedEffect(mapReady, userHistoryMode) {
-        if (!mapReady || userHistoryMode) return@LaunchedEffect
+    LaunchedEffect(mapReady, userHistoryMode, locationPermissionGranted) {
+        if (!mapReady || userHistoryMode || !locationPermissionGranted || !isProbablyEmulator()) return@LaunchedEffect
         delay(4500)
         viewModel.seedDemoReportsIfNeeded(currentLocation.latitude, currentLocation.longitude)
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .navigationBarsPadding(),
+    ) {
         ParyavaranPrimaryAppBar(
             navigation = AppBarNavigation.Back,
             onNavigationClick = onBackToHome,
             navigationContentDescription = "Back to guide",
-            onDebugClick = { showRoomDebug = true },
             onEcoKarmaClick = onOpenLeaderboard,
             onProfileClick = onOpenProfile,
             profileContentDescription = "Profile — ${userProfile?.nickname ?: "you"}",
@@ -367,70 +396,127 @@ fun MapScreen(
         if (!userHistoryMode) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                tonalElevation = 1.dp,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                tonalElevation = 0.dp,
                 shadowElevation = 0.dp,
             ) {
                 Column(
-                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     Text(
-                        text = "Nearby (${filteredReports.size} of ${reports.size}) · nearest first",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text("Distance", style = MaterialTheme.typography.labelLarge)
-                    Row(
-                        modifier = Modifier.horizontalScroll(radiusChipScroll),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        radiusOptions.forEachIndexed { i, (label, _) ->
-                            FilterChip(
-                                selected = radiusIndex == i,
-                                onClick = { radiusIndex = i },
-                                label = { Text(label) },
-                            )
-                        }
-                    }
-                    Text("Waste type", style = MaterialTheme.typography.labelLarge)
-                    Text(
-                        text = "Tap All to clear. Pick one or more types — a pin shows only if that report includes every selected category (stricter match).",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = "Nearby ${filteredReports.size}/${reports.size} · nearest first",
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(
-                        modifier = Modifier.horizontalScroll(wasteChipScroll),
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        FilterChip(
-                            selected = selectedWasteFilters.isEmpty(),
-                            onClick = { selectedWasteFilters = emptySet() },
-                            label = { Text("All") },
+                        Text(
+                            text = "Radius",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.widthIn(min = 42.dp),
                         )
-                        WasteMenu.types.forEach { w ->
-                            FilterChip(
-                                selected = w in selectedWasteFilters,
-                                onClick = {
-                                    selectedWasteFilters =
-                                        if (w in selectedWasteFilters) {
-                                            selectedWasteFilters - w
-                                        } else {
-                                            selectedWasteFilters + w
-                                        }
-                                },
-                                label = { Text(w) },
-                            )
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(radiusChipScroll),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            radiusOptions.forEachIndexed { i, (label, _) ->
+                                FilterChip(
+                                    selected = radiusIndex == i,
+                                    onClick = { radiusIndex = i },
+                                    label = {
+                                        Text(
+                                            label,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            maxLines = 1,
+                                        )
+                                    },
+                                    modifier = Modifier.height(34.dp),
+                                )
+                            }
                         }
                     }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = "Types",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.widthIn(min = 42.dp),
+                        )
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(wasteChipScroll),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            FilterChip(
+                                selected = selectedWasteFilters.isEmpty(),
+                                onClick = { selectedWasteFilters = emptySet() },
+                                label = {
+                                    Text(
+                                        "All",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        maxLines = 1,
+                                    )
+                                },
+                                modifier = Modifier.height(34.dp),
+                            )
+                            WasteMenu.types.forEach { w ->
+                                FilterChip(
+                                    selected = w in selectedWasteFilters,
+                                    onClick = {
+                                        selectedWasteFilters =
+                                            if (w in selectedWasteFilters) {
+                                                selectedWasteFilters - w
+                                            } else {
+                                                selectedWasteFilters + w
+                                            }
+                                    },
+                                    label = {
+                                        Text(
+                                            w,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    },
+                                    modifier = Modifier.height(34.dp),
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "Tap All to clear. Stricter match: every selected type must appear on the report.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         } else {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                tonalElevation = 1.dp,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                tonalElevation = 0.dp,
                 shadowElevation = 0.dp,
             ) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                Column(
+                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     val uid = cleanerUserIdFilter
                     val reportedCount = filteredReports.count {
                         matchesReporterOnUserMap(it, uid, filterNick)
@@ -458,24 +544,24 @@ fun MapScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = "Reports filed: $reportedCount · ${EcoKarma.SUBMIT_REPORT} pts each → $reportPts pts",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = "Reports: $reportedCount × ${EcoKarma.SUBMIT_REPORT} → $reportPts pts",
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = "Cleanups verified: $cleanedCount · ${EcoKarma.MARK_CLEANED} pts each → $cleanupPts pts",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = "Cleanups: $cleanedCount × ${EcoKarma.MARK_CLEANED} → $cleanupPts pts",
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
-                        text = "Total eco‑karma from these activities: $totalPts pts",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
+                        text = "Total: $totalPts eco‑karma",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
-                        text = "Red pins: incidents they reported (pending pickup). Green: they verified cleanup with an after photo.",
-                        style = MaterialTheme.typography.bodySmall,
+                        text = "Red = they reported · Green = they verified cleanup",
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.outline,
                     )
                 }
@@ -504,10 +590,13 @@ fun MapScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .weight(1f)
+                    .clipToBounds(),
             ) {
                 AndroidView(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clipToBounds(),
                     factory = { ctx ->
                         MapView(ctx).apply {
                             layoutParams = ViewGroup.LayoutParams(
@@ -515,7 +604,7 @@ fun MapScreen(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                             )
                             setMultiTouchControls(true)
-                            controller.setZoom(15.0)
+                            controller.setZoom(16.5)
                             // AVD: reduces "Unable to match the desired swap behavior" / Gralloc glitches
                             // with OSMDroid + OpenGL; real phones keep default (HW) layer.
                             if (isProbablyEmulator()) {
@@ -547,32 +636,44 @@ fun MapScreen(
         }
 
         if (!userHistoryMode) {
-            Button(
-                onClick = onReportIncident,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .height(56.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                tonalElevation = 1.dp,
+                shadowElevation = 0.dp,
             ) {
-                Text(
-                    text = "Report waste",
-                    style = MaterialTheme.typography.titleMedium,
-                )
+                Button(
+                    onClick = onReportIncident,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .height(52.dp),
+                    shape = RoundedCornerShape(26.dp),
+                    elevation = ButtonDefaults.buttonElevation(
+                        defaultElevation = 3.dp,
+                        pressedElevation = 8.dp,
+                        hoveredElevation = 4.dp,
+                    ),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.PhotoCamera,
+                        contentDescription = null,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = "Report waste",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
         }
     }
-
-    RoomDebugBottomSheet(
-        visible = showRoomDebug,
-        onDismiss = { showRoomDebug = false },
-        user = userProfile,
-        reports = reports,
-    )
 }
 
 /**
@@ -587,7 +688,6 @@ private fun MapView.applyReportOverlays(
     userLocation: GeoPoint,
     onReportTap: (ReportEntity) -> Unit,
 ) {
-    controller.setCenter(userLocation)
     overlays.clear()
     filteredReports.forEach { report ->
         addReportMarker(context, report, onReportTap)

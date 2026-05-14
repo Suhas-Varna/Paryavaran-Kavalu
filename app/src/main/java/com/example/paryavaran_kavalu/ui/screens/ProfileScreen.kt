@@ -45,7 +45,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.paryavaran_kavalu.ui.components.AppBarNavigation
 import com.example.paryavaran_kavalu.ui.components.ParyavaranAppBarTitle
 import com.example.paryavaran_kavalu.ui.components.ParyavaranPrimaryAppBar
-import com.example.paryavaran_kavalu.ui.components.RoomDebugBottomSheet
 import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 
 private fun profileEcoTierLabel(points: Int): String = when {
@@ -76,9 +75,6 @@ fun ProfileScreen(
 ) {
     val activity = LocalContext.current as ComponentActivity
     val profile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
-    val reports by viewModel.reports.collectAsStateWithLifecycle(lifecycleOwner = activity)
-    var showRoomDebug by remember { mutableStateOf(false) }
-
     var nickname by remember { mutableStateOf("") }
     var bio by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -112,7 +108,6 @@ fun ProfileScreen(
             navigation = AppBarNavigation.Back,
             onNavigationClick = onBack,
             navigationContentDescription = "Back",
-            onDebugClick = { showRoomDebug = true },
             onEcoKarmaClick = onOpenLeaderboard,
             onProfileClick = onOpenProfile,
             profileContentDescription = "Profile — ${profile?.nickname ?: "you"}",
@@ -306,10 +301,4 @@ fun ProfileScreen(
             }
         }
     }
-    RoomDebugBottomSheet(
-        visible = showRoomDebug,
-        onDismiss = { showRoomDebug = false },
-        user = profile,
-        reports = reports,
-    )
 }

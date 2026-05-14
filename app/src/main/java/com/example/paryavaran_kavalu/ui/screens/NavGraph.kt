@@ -14,6 +14,7 @@ import com.example.paryavaran_kavalu.ui.EcoKarma
 import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 import com.example.paryavaran_kavalu.ui.screens.CameraScreen
 import com.example.paryavaran_kavalu.ui.screens.CleanupSuccessScreen
+import com.example.paryavaran_kavalu.ui.screens.EcoCelebrationKind
 import com.example.paryavaran_kavalu.ui.screens.HomeScreen
 import com.example.paryavaran_kavalu.ui.screens.LeaderboardScreen
 import com.example.paryavaran_kavalu.ui.screens.MapScreen
@@ -177,6 +178,7 @@ fun AppNavigation() {
         composable("cleanup_success") {
             CleanupSuccessScreen(
                 pointsEarned = EcoKarma.MARK_CLEANED,
+                kind = EcoCelebrationKind.CleanupVerified,
                 onDone = {
                     navController.popBackStack("map", inclusive = false)
                 },
@@ -194,13 +196,36 @@ fun AppNavigation() {
             )
         }
 
+        composable("report_success") {
+            CleanupSuccessScreen(
+                pointsEarned = EcoKarma.SUBMIT_REPORT,
+                kind = EcoCelebrationKind.ReportSubmitted,
+                onDone = {
+                    navController.popBackStack("map", inclusive = false)
+                },
+                onViewLeaderboard = {
+                    navController.navigate("leaderboard") {
+                        popUpTo("report_success") { inclusive = true }
+                    }
+                },
+                viewModel = viewModel,
+                onOpenProfile = {
+                    navController.navigate("profile") {
+                        launchSingleTop = true
+                    }
+                },
+            )
+        }
+
         composable("report") {
             ReportScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onOpenCamera = { navController.navigate("camera") },
                 onSubmitted = {
-                    navController.popBackStack("map", inclusive = false)
+                    navController.navigate("report_success") {
+                        popUpTo("report") { inclusive = true }
+                    }
                 },
                 onOpenLeaderboard = {
                     navController.navigate("leaderboard") {

@@ -32,7 +32,6 @@ import coil.compose.AsyncImage
 import com.example.paryavaran_kavalu.ui.components.AppBarNavigation
 import com.example.paryavaran_kavalu.ui.components.ParyavaranAppBarTitle
 import com.example.paryavaran_kavalu.ui.components.ParyavaranPrimaryAppBar
-import com.example.paryavaran_kavalu.ui.components.RoomDebugBottomSheet
 import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 import java.io.File
 
@@ -50,9 +49,6 @@ fun CameraScreen(
     val context = LocalContext.current
     val activity = context as ComponentActivity
     val profile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
-    val reports by viewModel.reports.collectAsStateWithLifecycle(lifecycleOwner = activity)
-    var showRoomDebug by remember { mutableStateOf(false) }
-
     var imageUri by remember { mutableStateOf<Uri?>(null) }
 
     val photoFile = remember(sessionKey) {
@@ -109,7 +105,6 @@ fun CameraScreen(
             navigation = AppBarNavigation.Back,
             onNavigationClick = onBack,
             navigationContentDescription = "Back",
-            onDebugClick = { showRoomDebug = true },
             onEcoKarmaClick = onOpenLeaderboard,
             onProfileClick = onOpenProfile,
             profileContentDescription = "Profile — ${profile?.nickname ?: "you"}",
@@ -171,10 +166,4 @@ fun CameraScreen(
         }
         }
     }
-    RoomDebugBottomSheet(
-        visible = showRoomDebug,
-        onDismiss = { showRoomDebug = false },
-        user = profile,
-        reports = reports,
-    )
 }

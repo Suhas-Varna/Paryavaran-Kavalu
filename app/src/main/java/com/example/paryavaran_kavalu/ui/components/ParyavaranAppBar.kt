@@ -40,15 +40,15 @@ enum class AppBarNavigation {
 }
 
 /**
- * Standard primary app bar: **[Back or spacer] · Debug · Title · [Help?] · [Eco‑karma?] · Profile** — blue strip
- * matching the original map screen (`primary`, status-bar safe).
+ * Standard primary app bar: **[Back or spacer] · [Debug?] · Title · [Help?] · [Eco‑karma?] · Profile** — blue strip
+ * matching the original map screen (`primary`, status-bar safe). Debug is omitted when [onDebugClick] is null.
  */
 @Composable
 fun ParyavaranPrimaryAppBar(
     title: @Composable () -> Unit,
     navigation: AppBarNavigation,
     onNavigationClick: () -> Unit,
-    onDebugClick: () -> Unit,
+    onDebugClick: (() -> Unit)? = null,
     /** When non-null, the Eco‑karma leaf action is shown before profile (omit on the Eco‑karma screen). */
     onEcoKarmaClick: (() -> Unit)? = null,
     /** When non-null, the profile action is shown (omit on the welcome / home guide screen). */
@@ -91,16 +91,20 @@ fun ParyavaranPrimaryAppBar(
                     Spacer(Modifier.width(48.dp))
                 }
             }
-            IconButton(
-                onClick = onDebugClick,
-                modifier = Modifier.size(48.dp),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.BugReport,
-                    contentDescription = "Room database debug",
-                    tint = onPrimary,
-                    modifier = Modifier.size(26.dp),
-                )
+            if (onDebugClick != null) {
+                IconButton(
+                    onClick = onDebugClick,
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.BugReport,
+                        contentDescription = "Room database debug",
+                        tint = onPrimary,
+                        modifier = Modifier.size(26.dp),
+                    )
+                }
+            } else {
+                Spacer(Modifier.size(48.dp))
             }
             Box(
                 modifier = Modifier

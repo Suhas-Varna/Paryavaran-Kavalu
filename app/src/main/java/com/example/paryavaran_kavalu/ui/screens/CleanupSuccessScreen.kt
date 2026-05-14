@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Leaderboard
+import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -34,9 +35,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -54,7 +53,6 @@ import com.example.paryavaran_kavalu.ui.components.AppBarNavigation
 import com.example.paryavaran_kavalu.ui.components.PartyPopperBurst
 import com.example.paryavaran_kavalu.ui.components.ParyavaranAppBarTitle
 import com.example.paryavaran_kavalu.ui.components.ParyavaranPrimaryAppBar
-import com.example.paryavaran_kavalu.ui.components.RoomDebugBottomSheet
 import com.example.paryavaran_kavalu.ui.WasteReportViewModel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -65,9 +63,16 @@ private val ImpactGreen = Color(0xFF1B5E20)
 private val MintWash = Color(0xFFE8F5E9)
 private val LeafAccent = Color(0xFF43A047)
 
+/** What the shared celebration screen is celebrating (cleanup vs new report). */
+enum class EcoCelebrationKind {
+    CleanupVerified,
+    ReportSubmitted,
+}
+
 @Composable
 fun CleanupSuccessScreen(
     pointsEarned: Int,
+    kind: EcoCelebrationKind = EcoCelebrationKind.CleanupVerified,
     onDone: () -> Unit,
     onViewLeaderboard: () -> Unit,
     viewModel: WasteReportViewModel,
@@ -75,14 +80,11 @@ fun CleanupSuccessScreen(
 ) {
     val activity = LocalContext.current as ComponentActivity
     val profile by viewModel.userProfile.collectAsStateWithLifecycle(lifecycleOwner = activity)
-    val reports by viewModel.reports.collectAsStateWithLifecycle(lifecycleOwner = activity)
-    var showRoomDebug by remember { mutableStateOf(false) }
-
     val iconScale = remember { Animatable(0f) }
     val ringAlpha = remember { Animatable(0f) }
     val pointsShown = remember { Animatable(0f) }
 
-    LaunchedEffect(pointsEarned) {
+    LaunchedEffect(pointsEarned, kind) {
         coroutineScope {
             launch {
                 iconScale.animateTo(
@@ -109,13 +111,15 @@ fun CleanupSuccessScreen(
             ParyavaranPrimaryAppBar(
                 navigation = AppBarNavigation.None,
                 onNavigationClick = {},
-                onDebugClick = { showRoomDebug = true },
                 onEcoKarmaClick = onViewLeaderboard,
                 onProfileClick = onOpenProfile,
                 profileContentDescription = "Profile — ${profile?.nickname ?: "you"}",
                 title = {
                     ParyavaranAppBarTitle(
-                        text = "Success",
+                        text = when (kind) {
+                            EcoCelebrationKind.CleanupVerified -> "Success"
+                            EcoCelebrationKind.ReportSubmitted -> "Nice work"
+                        },
                         subtitle = "Eco‑karma · +$pointsEarned pts",
                     )
                 },
@@ -136,7 +140,7 @@ fun CleanupSuccessScreen(
             ) {
                 PartyPopperBurst(
                     modifier = Modifier.fillMaxSize(),
-                    triggerKey = pointsEarned,
+                    triggerKey = pointsEarned + kind.ordinal * 12_345,
                 )
                 Column(
                     modifier = Modifier
@@ -169,7 +173,10 @@ fun CleanupSuccessScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Check,
+                            imageVector = when (kind) {
+                                EcoCelebrationKind.CleanupVerified -> Icons.Filled.Check
+                                EcoCelebrationKind.ReportSubmitted -> Icons.Outlined.PhotoCamera
+                            },
                             contentDescription = null,
                             tint = Color.White,
                             modifier = Modifier.size(56.dp),
@@ -180,7 +187,10 @@ fun CleanupSuccessScreen(
                 Spacer(Modifier.height(28.dp))
 
                 Text(
-                    text = "Spot verified clean",
+                    text = when (kind) {
+                        EcoCelebrationKind.CleanupVerified -> "Spot verified clean"
+                        EcoCelebrationKind.ReportSubmitted -> "Report saved"
+                    },
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -189,7 +199,12 @@ fun CleanupSuccessScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "You helped your neighbourhood breathe easier. Keep going — every cleanup counts.",
+                    text = when (kind) {
+                        EcoCelebrationKind.CleanupVerified ->
+                            "You helped your neighbourhood breathe easier. Keep going — every cleanup counts."
+                        EcoCelebrationKind.ReportSubmitted ->
+                            "Thanks for mapping this waste. Others can see it on the map and you’ve earned Eco‑karma for speaking up."
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -223,7 +238,12 @@ fun CleanupSuccessScreen(
                             color = ImpactGreen,
                         )
                         Text(
-                            text = "For verifying this cleanup with your photo",
+                            text = when (kind) {
+                                EcoCelebrationKind.CleanupVerified ->
+                                    "For verifying this cleanup with your photo"
+                                EcoCelebrationKind.ReportSubmitted ->
+                                    "For filing this report with your photo and waste types"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
@@ -295,12 +315,6 @@ fun CleanupSuccessScreen(
             }
         }
     }
-    RoomDebugBottomSheet(
-        visible = showRoomDebug,
-        onDismiss = { showRoomDebug = false },
-        user = profile,
-        reports = reports,
-    )
 }
 
 @Composable
