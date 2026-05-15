@@ -406,7 +406,6 @@ Paryavaran-Kavalu/
   <h2> Developed By </h2>
 
   <h3> Suhas Varna </h3>
-  <p><strong>USN:</strong> 1RN22IS158 | <strong>Batch:</strong> Kinetics | <strong>MindMatrix VTU Internship Program</strong></p>
   <p align="left">
     <a href="https://github.com/Suhas-Varna" style="text-decoration: none;" target="_blank" rel="nofollow">
       <img src="https://img.shields.io/badge/GitHub-black?style=flat&logo=github" alt="GitHub" />
